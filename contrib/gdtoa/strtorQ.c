@@ -29,7 +29,7 @@ THIS SOFTWARE.
 /* Please send bug reports to David M. Gay (dmg at acm dot org,
  * with " at " changed at "@" and " dot " changed to ".").	*/
 
-/* $FreeBSD$ */
+/* $FreeBSD: head/contrib/gdtoa/strtorQ.c 174690 2007-12-16 23:31:55Z das $ */
 
 #include "gdtoaimp.h"
 
@@ -103,9 +103,10 @@ ULtoQ(ULong *L, ULong *bits, Long exp, int k)
 
  int
 #ifdef KR_headers
-strtorQ(s, sp, rounding, L) CONST char *s; char **sp; int rounding; void *L;
+strtorQ_l(s, sp, rounding, L, locale) CONST char *s; char **sp; int rounding;
+void *L; locale_t locale;
 #else
-strtorQ(CONST char *s, char **sp, int rounding, void *L)
+strtorQ_l(CONST char *s, char **sp, int rounding, void *L, locale_t locale)
 #endif
 {
 	static FPI fpi0 = { 113, 1-16383-113+1, 32766-16383-113+1, 1, SI };
@@ -120,7 +121,17 @@ strtorQ(CONST char *s, char **sp, int rounding, void *L)
 		fpi1.rounding = rounding;
 		fpi = &fpi1;
 		}
-	k = strtodg(s, sp, fpi, &exp, bits);
+	k = strtodg_l(s, sp, fpi, &exp, bits, locale);
 	ULtoQ((ULong*)L, bits, exp, k);
 	return k;
 	}
+
+ int
+#ifdef KR_headers
+strtorQ(s, sp, rounding, L) CONST char *s; char **sp; int rounding; void *L;
+#else
+strtorQ(CONST char *s, char **sp, int rounding, void *L)
+#endif
+{
+	return strtorQ_l(s, sp, rounding, L, __get_locale());
+}

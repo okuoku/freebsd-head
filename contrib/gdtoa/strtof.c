@@ -29,18 +29,19 @@ THIS SOFTWARE.
 /* Please send bug reports to David M. Gay (dmg at acm dot org,
  * with " at " changed at "@" and " dot " changed to ".").	*/
 
-/* $FreeBSD$ */
+/* $FreeBSD: head/contrib/gdtoa/strtof.c 219557 2011-03-12 07:03:06Z das $ */
 
 #include "gdtoaimp.h"
+#include "xlocale_private.h"
 
  float
 #ifdef KR_headers
-strtof(s, sp) CONST char *s; char **sp;
+strtof_l(s, sp, l) CONST char *s; char **sp; locale_t l;
 #else
-strtof(CONST char *s, char **sp)
+strtof_l(CONST char *s, char **sp, locale_t l)
 #endif
 {
-	static FPI fpi0 = { 24, 1-127-24+1,  254-127-24+1, 1, SI };
+	static const FPI fpi0 = { 24, 1-127-24+1,  254-127-24+1, 1, SI };
 	ULong bits[1];
 	Long exp;
 	int k;
@@ -51,7 +52,7 @@ strtof(CONST char *s, char **sp)
 #define fpi &fpi0
 #endif
 
-	k = strtodg(s, sp, fpi, &exp, bits);
+	k = strtodg_l(s, sp, fpi, &exp, bits, l);
 	switch(k & STRTOG_Retmask) {
 	  case STRTOG_NoNumber:
 	  case STRTOG_Zero:
@@ -82,3 +83,13 @@ strtof(CONST char *s, char **sp)
 		u.L[0] |= 0x80000000L;
 	return u.f;
 	}
+
+ float
+#ifdef KR_headers
+strtof(s, sp) CONST char *s; char **sp;
+#else
+strtof(CONST char *s, char **sp)
+#endif
+{
+	return strtof_l(s, sp, __get_locale());
+}

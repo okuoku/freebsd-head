@@ -29,7 +29,7 @@ THIS SOFTWARE.
 /* Please send bug reports to David M. Gay (dmg at acm dot org,
  * with " at " changed at "@" and " dot " changed to ".").	*/
 
-/* $FreeBSD$ */
+/* $FreeBSD: head/contrib/gdtoa/strtod.c 219557 2011-03-12 07:03:06Z das $ */
 
 #include "gdtoaimp.h"
 #ifndef NO_FENV_H
@@ -39,6 +39,7 @@ THIS SOFTWARE.
 #ifdef USE_LOCALE
 #include "locale.h"
 #endif
+#include "xlocale_private.h"
 
 #ifdef IEEE_Arith
 #ifndef NO_IEEE_Scale
@@ -82,11 +83,11 @@ sulp
 #endif /*}*/
 
  double
-strtod
+strtod_l
 #ifdef KR_headers
-	(s00, se) CONST char *s00; char **se;
+	(s00, se, l) CONST char *s00; char **se; locale_t l
 #else
-	(CONST char *s00, char **se)
+	(CONST char *s00, char **se, locale_t l)
 #endif
 {
 #ifdef Avoid_Underflow
@@ -108,14 +109,14 @@ strtod
 #endif
 #ifdef USE_LOCALE /*{{*/
 #ifdef NO_LOCALE_CACHE
-	char *decimalpoint = localeconv()->decimal_point;
+	char *decimalpoint = localeconv_l(l)->decimal_point;
 	int dplen = strlen(decimalpoint);
 #else
 	char *decimalpoint;
 	static char *decimalpoint_cache;
 	static int dplen;
 	if (!(s0 = decimalpoint_cache)) {
-		s0 = localeconv()->decimal_point;
+		s0 = localeconv_l(l)->decimal_point;
 		if ((decimalpoint_cache = (char*)MALLOC(strlen(s0) + 1))) {
 			strcpy(decimalpoint_cache, s0);
 			s0 = decimalpoint_cache;
@@ -168,7 +169,7 @@ strtod
 	if (*s == '0') {
 #ifndef NO_HEX_FP /*{*/
 		{
-		static FPI fpi = { 53, 1-1023-53+1, 2046-1023-53+1, 1, SI };
+		static const FPI fpi = { 53, 1-1023-53+1, 2046-1023-53+1, 1, SI };
 		Long exp;
 		ULong bits[2];
 		switch(s[1]) {
@@ -295,7 +296,7 @@ strtod
 #ifdef INFNAN_CHECK
 			/* Check for Nan and Infinity */
 			ULong bits[2];
-			static FPI fpinan =	/* only 52 explicit bits */
+			static const FPI fpinan =	/* only 52 explicit bits */
 				{ 52, 1-1023-53+1, 2046-1023-53+1, 1, SI };
 			if (!decpt)
 			 switch(c) {
@@ -1074,3 +1075,13 @@ strtod
 	return sign ? -dval(&rv) : dval(&rv);
 	}
 
+ double
+strtod
+#ifdef KR_headers
+	(s00, se, l) CONST char *s00; char **se; locale_t
+#else
+	(CONST char *s00, char **se)
+#endif
+{
+	return strtod_l(s00, se, __get_locale());
+}

@@ -30,7 +30,7 @@
  * SUCH DAMAGE.
  *
  *	@(#)runetype.h	8.1 (Berkeley) 6/2/93
- * $FreeBSD$
+ * $FreeBSD: head/include/runetype.h 203964 2010-02-16 19:39:50Z imp $
  */
 
 #ifndef	_RUNETYPE_H_
@@ -83,8 +83,14 @@ typedef struct {
 } _RuneLocale;
 
 #define	_RUNE_MAGIC_1	"RuneMagi"	/* Indicates version 0 of RuneLocale */
-
-extern _RuneLocale _DefaultRuneLocale;
+__BEGIN_DECLS
+extern const _RuneLocale _DefaultRuneLocale;
+__attribute__((deprecated))
 extern _RuneLocale *_CurrentRuneLocale;
+/* TODO: This is called quite a lot, so we should use a __thread variable when
+ * it's available. */
+extern _RuneLocale *__getCurrentRuneLocale(void);
+#define _CurrentRuneLocale (__getCurrentRuneLocale())
+__END_DECLS
 
 #endif	/* !_RUNETYPE_H_ */

@@ -1,11 +1,11 @@
 #	from @(#)Makefile.inc	8.1 (Berkeley) 6/4/93
-# $FreeBSD$
+# $FreeBSD: head/lib/libc/locale/Makefile.inc 211774 2010-08-24 20:54:43Z imp $
 
 # locale sources
 .PATH: ${.CURDIR}/${LIBC_ARCH}/locale ${.CURDIR}/locale
 
 SRCS+=	ascii.c big5.c btowc.c collate.c collcmp.c euc.c fix_grouping.c \
-	gb18030.c gb2312.c gbk.c isctype.c iswctype.c \
+	gb18030.c gb2312.c gbk.c ctype.c isctype.c iswctype.c \
 	ldpart.c lmessages.c lmonetary.c lnumeric.c localeconv.c mblen.c \
 	mbrlen.c \
 	mbrtowc.c mbsinit.c mbsnrtowcs.c \
@@ -20,7 +20,8 @@ SRCS+=	ascii.c big5.c btowc.c collate.c collcmp.c euc.c fix_grouping.c \
 	wcstoimax.c wcstol.c wcstold.c wcstoll.c \
 	wcstombs.c \
 	wcstoul.c wcstoull.c wcstoumax.c wctob.c wctomb.c wctrans.c wctype.c \
-	wcwidth.c
+	wcwidth.c\
+	xlocale.c
 
 SYM_MAPS+=${.CURDIR}/locale/Symbol.map
 

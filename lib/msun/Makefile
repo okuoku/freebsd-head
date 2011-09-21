@@ -1,5 +1,5 @@
 #  @(#)Makefile 5.1beta 93/09/24
-# $FreeBSD$
+# $FreeBSD: head/lib/msun/Makefile 219576 2011-03-12 19:37:35Z kargl $
 #
 #  ====================================================
 #  Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
@@ -70,7 +70,7 @@ COMMON_SRCS= b_exp.c b_log.c b_tgamma.c \
 	s_scalbln.c s_scalbn.c s_scalbnf.c s_signbit.c \
 	s_signgam.c s_significand.c s_significandf.c s_sin.c s_sinf.c \
 	s_tan.c s_tanf.c s_tanh.c s_tanhf.c s_tgammaf.c s_trunc.c s_truncf.c \
-	w_cabs.c w_cabsf.c w_drem.c w_dremf.c
+	w_cabs.c w_cabsf.c w_drem.c w_dremf.c stubs.c
 
 # Location of fpmath.h and _fpmath.h
 LIBCDIR=	${.CURDIR}/../libc

@@ -56,7 +56,7 @@ strtopQ(s, sp, V) CONST char *s; char **sp; void *V;
 strtopQ(CONST char *s, char **sp, void *V)
 #endif
 {
-	static FPI fpi0 = { 113, 1-16383-113+1, 32766 - 16383 - 113 + 1, 1, SI };
+	static const FPI fpi0 = { 113, 1-16383-113+1, 32766 - 16383 - 113 + 1, 1, SI };
 	ULong bits[4];
 	Long exp;
 	int k;

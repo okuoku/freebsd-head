@@ -1,5 +1,5 @@
 /*
- * $FreeBSD$
+ * $FreeBSD: head/lib/libc/string/Symbol.map 189361 2009-03-04 06:01:27Z das $
  */
 
 FBSD_1.0 {
@@ -75,6 +75,11 @@ FBSD_1.0 {
 	wmemcpy;
 	wmemmove;
 	wmemset;
+	strcasecmp_l;
+	strcasestr_l;
+	strncasecmp_l;
+	wcswidth_l;
+	wcwidth_l;
 };
 
 FBSD_1.1 {

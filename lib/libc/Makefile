@@ -1,7 +1,10 @@
 #	@(#)Makefile	8.2 (Berkeley) 2/3/94
-# $FreeBSD$
+# $FreeBSD: head/lib/libc/Makefile 219019 2011-02-25 00:04:39Z gabor $
 
 SHLIBDIR?= /lib
+
+DEBUG_CFLAGS+=-g
+CFLAGS+=-g
 
 .include <bsd.own.mk>
 
@@ -35,6 +38,7 @@ PRECIOUSLIB=
 CANCELPOINTS_CFLAGS=-fexceptions
 CFLAGS+=${CANCELPOINTS_CFLAGS}
 .endif
+
 
 #
 # Only link with static libgcc.a (no libgcc_eh.a).

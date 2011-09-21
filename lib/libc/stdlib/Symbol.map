@@ -1,5 +1,5 @@
 /*
- * $FreeBSD$
+ * $FreeBSD: head/lib/libc/stdlib/Symbol.map 182225 2008-08-27 02:00:53Z jasone $
  */
 
 FBSD_1.0 {
@@ -90,6 +90,21 @@ FBSD_1.0 {
 	tfind;
 	tsearch;
 	twalk;
+	atof_l;
+	atoi_l;
+	atol_l;
+	atoll_l;
+	strtod_l;
+	strtol_l;
+	strtoll_l;
+	strtof_l;
+	strtoimax_l;
+	strtold_l;
+	strtoq_l;
+	strtoul_l;
+	strtoull_l;
+	strtoumax_l;
+	strtouq_l;
 };
 
 FBSDprivate_1.0 {

@@ -1,5 +1,5 @@
 #	@(#)Makefile	8.2 (Berkeley) 1/4/94
-# $FreeBSD$
+# $FreeBSD: head/include/Makefile 220370 2011-04-05 18:41:01Z obrien $
 #
 # Doing a "make install" builds /usr/include.
 
@@ -24,7 +24,7 @@ INCS=	a.out.h ar.h assert.h bitstring.h complex.h cpio.h _ctype.h ctype.h \
 	strings.h sysexits.h tar.h termios.h tgmath.h \
 	time.h timeconv.h timers.h ttyent.h \
 	ulimit.h unistd.h utime.h utmpx.h uuid.h varargs.h vis.h \
-	wchar.h wctype.h wordexp.h
+	wchar.h wctype.h wordexp.h xlocale.h _xlocale_ctype.h
 
 MHDRS=	float.h floatingpoint.h stdarg.h
 

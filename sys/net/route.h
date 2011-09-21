@@ -49,8 +49,12 @@
 struct route {
 	struct	rtentry *ro_rt;
 	struct	llentry *ro_lle;
+	struct	in_ifaddr *ro_ia;
+	int		ro_flags;
 	struct	sockaddr ro_dst;
 };
+
+#define RT_CACHING_CONTEXT	0x1
 
 /*
  * These numbers are used by reliable protocols for determining
@@ -108,8 +112,6 @@ struct rt_metrics {
 #endif
 
 extern u_int rt_numfibs;	/* number fo usable routing tables */
-extern u_int tunnel_fib;	/* tunnels use these */
-extern u_int fwd_fib;		/* packets being forwarded use these routes */
 /*
  * XXX kernel function pointer `rt_output' is visible to applications.
  */

@@ -63,6 +63,15 @@
 # SHAREMODE	ASCII text file mode. [${NOBINMODE}]
 #
 #
+# CONFDIR	Base path for configuration files. [/etc]
+#
+# CONFOWN	Configuration file owner. [root]
+#
+# CONFGRP	Configuration file group. [wheel]
+#
+# CONFMODE	Configuration file mode. [644]
+#
+#
 # DOCDIR	Base path for system documentation (e.g. PSD, USD,
 #		handbook, FAQ etc.). [${SHAREDIR}/doc]
 #
@@ -144,6 +153,11 @@ SHAREDIR?=	/usr/share
 SHAREOWN?=	root
 SHAREGRP?=	wheel
 SHAREMODE?=	${NOBINMODE}
+
+CONFDIR?=	/etc
+CONFOWN?=	root
+CONFGRP?=	wheel
+CONFMODE?=	644
 
 MANDIR?=	${SHAREDIR}/man/man
 MANOWN?=	${SHAREOWN}
@@ -248,7 +262,6 @@ WITHOUT_${var}=
     NLS \
     NLS_CATALOGS \
     NS_CACHING \
-    OBJC \
     OPENSSH \
     OPENSSL \
     PAM \
@@ -327,6 +340,7 @@ __DEFAULT_YES_OPTIONS = \
     GPIO \
     GROFF \
     HTML \
+    INET \
     INET6 \
     INFO \
     INSTALLLIB \
@@ -335,6 +349,7 @@ __DEFAULT_YES_OPTIONS = \
     IPX \
     JAIL \
     KERBEROS \
+    KERNEL_SYMBOLS \
     KVM \
     LEGACY_CONSOLE \
     LIB32 \
@@ -356,7 +371,6 @@ __DEFAULT_YES_OPTIONS = \
     NLS_CATALOGS \
     NS_CACHING \
     NTP \
-    OBJC \
     OPENSSH \
     OPENSSL \
     PAM \
@@ -383,6 +397,7 @@ __DEFAULT_YES_OPTIONS = \
     TEXTPROC \
     TOOLCHAIN \
     USB \
+    UTMPX \
     WIRELESS \
     WPA_SUPPLICANT_EAPOL \
     ZFS \
@@ -395,7 +410,6 @@ __DEFAULT_NO_OPTIONS = \
     BIND_LIBS \
     BIND_SIGCHASE \
     BIND_XML \
-    GNU_CPIO \
     HESIOD \
     ICONV \
     IDEA \
@@ -406,7 +420,7 @@ __DEFAULT_NO_OPTIONS = \
 # this means that we have to test TARGET_ARCH (the buildworld case) as well
 # as MACHINE_ARCH (the non-buildworld case).  Normally TARGET_ARCH is not
 # used at all in bsd.*.mk, but we have to make an exception here if we want
-# to allow defaults for some things like clang and ftd to vary by target
+# to allow defaults for some things like clang and fdt to vary by target
 # architecture.
 #
 .if defined(TARGET_ARCH)
@@ -500,6 +514,11 @@ MK_OPENSSH:=	no
 MK_KERBEROS:=	no
 .endif
 
+.if ${MK_CXX} == "no"
+MK_CLANG:=	no
+MK_GROFF:=	no
+.endif
+
 .if ${MK_IPX} == "no"
 MK_NCP:=	no
 .endif
@@ -528,7 +547,9 @@ MK_GROFF:=	no
 .endif
 
 .if ${MK_TOOLCHAIN} == "no"
+MK_BINUTILS:=	no
 MK_CLANG:=	no
+MK_GCC:=	no
 MK_GDB:=	no
 .endif
 
@@ -543,6 +564,7 @@ MK_GDB:=	no
 .for var in \
     BZIP2 \
     GNU \
+    INET \
     INET6 \
     IPX \
     KERBEROS \

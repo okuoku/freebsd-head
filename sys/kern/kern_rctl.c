@@ -99,19 +99,17 @@ static struct dict subjectnames[] = {
 	{ NULL, -1 }};
 
 static struct dict resourcenames[] = {
-	{ "cpu", RACCT_CPU },
-	{ "fsize", RACCT_FSIZE },
-	{ "data", RACCT_DATA },
-	{ "stack", RACCT_STACK },
-	{ "core", RACCT_CORE },
-	{ "rss", RACCT_RSS },
-	{ "memlock", RACCT_MEMLOCK },
-	{ "nproc", RACCT_NPROC },
-	{ "nofile", RACCT_NOFILE },
-	{ "sbsize", RACCT_SBSIZE },
-	{ "vmem", RACCT_VMEM },
-	{ "npts", RACCT_NPTS },
-	{ "swap", RACCT_SWAP },
+	{ "cputime", RACCT_CPU },
+	{ "datasize", RACCT_DATA },
+	{ "stacksize", RACCT_STACK },
+	{ "coredumpsize", RACCT_CORE },
+	{ "memoryuse", RACCT_RSS },
+	{ "memorylocked", RACCT_MEMLOCK },
+	{ "maxproc", RACCT_NPROC },
+	{ "openfiles", RACCT_NOFILE },
+	{ "vmemoryuse", RACCT_VMEM },
+	{ "pseudoterminals", RACCT_NPTS },
+	{ "swapuse", RACCT_SWAP },
 	{ "nthr", RACCT_NTHR },
 	{ "msgqqueued", RACCT_MSGQQUEUED },
 	{ "msgqsize", RACCT_MSGQSIZE },
@@ -241,7 +239,8 @@ rctl_available_resource(const struct proc *p, const struct rctl_rule *rule)
 		break;
 	case RCTL_SUBJECT_TYPE_JAIL:
 		available = rule->rr_amount -
-		    cred->cr_prison->pr_racct->r_resources[resource];
+		    cred->cr_prison->pr_prison_racct->prr_racct->
+		        r_resources[resource];
 		break;
 	default:
 		panic("rctl_compute_available: unknown per %d",
@@ -327,7 +326,7 @@ rctl_enforce(struct proc *p, int resource, uint64_t amount)
 			printf("rctl: rule \"%s\" matched by pid %d "
 			    "(%s), uid %d, jail %s\n", sbuf_data(&sb),
 			    p->p_pid, p->p_comm, p->p_ucred->cr_uid,
-			    p->p_ucred->cr_prison->pr_name);
+			    p->p_ucred->cr_prison->pr_prison_racct->prr_name);
 			sbuf_delete(&sb);
 			free(buf, M_RCTL);
 			link->rrl_exceeded = 1;
@@ -346,7 +345,7 @@ rctl_enforce(struct proc *p, int resource, uint64_t amount)
 			rctl_rule_to_sbuf(&sb, rule);
 			sbuf_printf(&sb, " pid=%d ruid=%d jail=%s",
 			    p->p_pid, p->p_ucred->cr_ruid,
-			    p->p_ucred->cr_prison->pr_name);
+			    p->p_ucred->cr_prison->pr_prison_racct->prr_name);
 			sbuf_finish(&sb);
 			devctl_notify_f("RCTL", "rule", "matched",
 			    sbuf_data(&sb), M_NOWAIT);
@@ -364,10 +363,21 @@ rctl_enforce(struct proc *p, int resource, uint64_t amount)
 			     rule->rr_action));
 
 			/*
+			 * We're supposed to send a signal, but the process
+			 * is not fully initialized yet, probably because we
+			 * got called from fork1().  For now just deny the
+			 * allocation instead.
+			 */
+			if (p->p_state != PRS_NORMAL) {
+				should_deny = 1;
+				continue;
+			}
+
+			/*
 			 * We're using the fact that RCTL_ACTION_SIG* values
 			 * are equal to their counterparts from sys/signal.h.
 			 */
-			psignal(p, rule->rr_action);
+			kern_psignal(p, rule->rr_action);
 			link->rrl_exceeded = 1;
 			continue;
 		}
@@ -475,15 +485,15 @@ rctl_rule_matches(const struct rctl_rule *rule, const struct rctl_rule *filter)
 				return (0);
 			break;
 		case RCTL_SUBJECT_TYPE_LOGINCLASS:
-			if (filter->rr_subject.hr_loginclass != NULL &&
-			    rule->rr_subject.hr_loginclass !=
-			    filter->rr_subject.hr_loginclass)
+			if (filter->rr_subject.rs_loginclass != NULL &&
+			    rule->rr_subject.rs_loginclass !=
+			    filter->rr_subject.rs_loginclass)
 				return (0);
 			break;
 		case RCTL_SUBJECT_TYPE_JAIL:
-			if (filter->rr_subject.rs_prison != NULL &&
-			    rule->rr_subject.rs_prison !=
-			    filter->rr_subject.rs_prison)
+			if (filter->rr_subject.rs_prison_racct != NULL &&
+			    rule->rr_subject.rs_prison_racct !=
+			    filter->rr_subject.rs_prison_racct)
 				return (0);
 			break;
 		default:
@@ -635,15 +645,18 @@ rctl_rule_acquire_subject(struct rctl_rule *rule)
 	switch (rule->rr_subject_type) {
 	case RCTL_SUBJECT_TYPE_UNDEFINED:
 	case RCTL_SUBJECT_TYPE_PROCESS:
+		break;
 	case RCTL_SUBJECT_TYPE_JAIL:
+		if (rule->rr_subject.rs_prison_racct != NULL)
+			prison_racct_hold(rule->rr_subject.rs_prison_racct);
 		break;
 	case RCTL_SUBJECT_TYPE_USER:
 		if (rule->rr_subject.rs_uip != NULL)
 			uihold(rule->rr_subject.rs_uip);
 		break;
 	case RCTL_SUBJECT_TYPE_LOGINCLASS:
-		if (rule->rr_subject.hr_loginclass != NULL)
-			loginclass_hold(rule->rr_subject.hr_loginclass);
+		if (rule->rr_subject.rs_loginclass != NULL)
+			loginclass_hold(rule->rr_subject.rs_loginclass);
 		break;
 	default:
 		panic("rctl_rule_acquire_subject: unknown subject type %d",
@@ -658,15 +671,18 @@ rctl_rule_release_subject(struct rctl_rule *rule)
 	switch (rule->rr_subject_type) {
 	case RCTL_SUBJECT_TYPE_UNDEFINED:
 	case RCTL_SUBJECT_TYPE_PROCESS:
+		break;
 	case RCTL_SUBJECT_TYPE_JAIL:
+		if (rule->rr_subject.rs_prison_racct != NULL)
+			prison_racct_free(rule->rr_subject.rs_prison_racct);
 		break;
 	case RCTL_SUBJECT_TYPE_USER:
 		if (rule->rr_subject.rs_uip != NULL)
 			uifree(rule->rr_subject.rs_uip);
 		break;
 	case RCTL_SUBJECT_TYPE_LOGINCLASS:
-		if (rule->rr_subject.hr_loginclass != NULL)
-			loginclass_free(rule->rr_subject.hr_loginclass);
+		if (rule->rr_subject.rs_loginclass != NULL)
+			loginclass_free(rule->rr_subject.rs_loginclass);
 		break;
 	default:
 		panic("rctl_rule_release_subject: unknown subject type %d",
@@ -685,8 +701,8 @@ rctl_rule_alloc(int flags)
 	rule->rr_subject_type = RCTL_SUBJECT_TYPE_UNDEFINED;
 	rule->rr_subject.rs_proc = NULL;
 	rule->rr_subject.rs_uip = NULL;
-	rule->rr_subject.hr_loginclass = NULL;
-	rule->rr_subject.rs_prison = NULL;
+	rule->rr_subject.rs_loginclass = NULL;
+	rule->rr_subject.rs_prison_racct = NULL;
 	rule->rr_per = RCTL_SUBJECT_TYPE_UNDEFINED;
 	rule->rr_resource = RACCT_UNDEFINED;
 	rule->rr_action = RCTL_ACTION_UNDEFINED;
@@ -707,8 +723,8 @@ rctl_rule_duplicate(const struct rctl_rule *rule, int flags)
 	copy->rr_subject_type = rule->rr_subject_type;
 	copy->rr_subject.rs_proc = rule->rr_subject.rs_proc;
 	copy->rr_subject.rs_uip = rule->rr_subject.rs_uip;
-	copy->rr_subject.hr_loginclass = rule->rr_subject.hr_loginclass;
-	copy->rr_subject.rs_prison = rule->rr_subject.rs_prison;
+	copy->rr_subject.rs_loginclass = rule->rr_subject.rs_loginclass;
+	copy->rr_subject.rs_prison_racct = rule->rr_subject.rs_prison_racct;
 	copy->rr_per = rule->rr_per;
 	copy->rr_resource = rule->rr_resource;
 	copy->rr_action = rule->rr_action;
@@ -780,11 +796,11 @@ rctl_rule_fully_specified(const struct rctl_rule *rule)
 			return (0);
 		break;
 	case RCTL_SUBJECT_TYPE_LOGINCLASS:
-		if (rule->rr_subject.hr_loginclass == NULL)
+		if (rule->rr_subject.rs_loginclass == NULL)
 			return (0);
 		break;
 	case RCTL_SUBJECT_TYPE_JAIL:
-		if (rule->rr_subject.rs_prison == NULL)
+		if (rule->rr_subject.rs_prison_racct == NULL)
 			return (0);
 		break;
 	default:
@@ -832,8 +848,8 @@ rctl_string_to_rule(char *rulestr, struct rctl_rule **rulep)
 	if (subject_idstr == NULL || subject_idstr[0] == '\0') {
 		rule->rr_subject.rs_proc = NULL;
 		rule->rr_subject.rs_uip = NULL;
-		rule->rr_subject.hr_loginclass = NULL;
-		rule->rr_subject.rs_prison = NULL;
+		rule->rr_subject.rs_loginclass = NULL;
+		rule->rr_subject.rs_prison_racct = NULL;
 	} else {
 		switch (rule->rr_subject_type) {
 		case RCTL_SUBJECT_TYPE_UNDEFINED:
@@ -858,31 +874,20 @@ rctl_string_to_rule(char *rulestr, struct rctl_rule **rulep)
 			rule->rr_subject.rs_uip = uifind(id);
 			break;
 		case RCTL_SUBJECT_TYPE_LOGINCLASS:
-			rule->rr_subject.hr_loginclass =
+			rule->rr_subject.rs_loginclass =
 			    loginclass_find(subject_idstr);
-			if (rule->rr_subject.hr_loginclass == NULL) {
+			if (rule->rr_subject.rs_loginclass == NULL) {
 				error = ENAMETOOLONG;
 				goto out;
 			}
 			break;
 		case RCTL_SUBJECT_TYPE_JAIL:
-			rule->rr_subject.rs_prison =
-			    prison_find_name(&prison0, subject_idstr);
-			if (rule->rr_subject.rs_prison == NULL) {
-				/*
-				 * No jail with that name; try with the JID.
-				 */
-				error = str2id(subject_idstr, &id);
-				if (error != 0)
-					goto out;
-				rule->rr_subject.rs_prison = prison_find(id);
-				if (rule->rr_subject.rs_prison == NULL) {
-					error = ESRCH;
-					goto out;
-				}
+			rule->rr_subject.rs_prison_racct =
+			    prison_racct_find(subject_idstr);
+			if (rule->rr_subject.rs_prison_racct == NULL) {
+				error = ENAMETOOLONG;
+				goto out;
 			}
-			/* prison_find() returns with mutex held. */
-			mtx_unlock(&rule->rr_subject.rs_prison->pr_mtx);
 			break;
                default:
                        panic("rctl_string_to_rule: unknown subject type %d",
@@ -913,8 +918,8 @@ rctl_string_to_rule(char *rulestr, struct rctl_rule **rulep)
 		error = str2int64(amountstr, &rule->rr_amount);
 		if (error != 0)
 			goto out;
-		if (racct_is_in_thousands(rule->rr_resource))
-			rule->rr_amount *= 1000;
+		if (RACCT_IS_IN_MILLIONS(rule->rr_resource))
+			rule->rr_amount *= 1000000;
 	}
 
 	if (perstr == NULL || perstr[0] == '\0')
@@ -944,6 +949,7 @@ rctl_rule_add(struct rctl_rule *rule)
 	struct ucred *cred;
 	struct uidinfo *uip;
 	struct prison *pr;
+	struct prison_racct *prr;
 	struct loginclass *lc;
 	struct rctl_rule *rule2;
 	int match;
@@ -952,7 +958,7 @@ rctl_rule_add(struct rctl_rule *rule)
 
 	/*
 	 * Some rules just don't make sense.  Note that the one below
-	 * cannot be rewritten using racct_is_deniable(); the RACCT_PCTCPU,
+	 * cannot be rewritten using RACCT_IS_DENIABLE(); the RACCT_PCTCPU,
 	 * for example, is not deniable in the racct sense, but the
 	 * limit is enforced in a different way, so "deny" rules for %CPU
 	 * do make sense.
@@ -963,7 +969,7 @@ rctl_rule_add(struct rctl_rule *rule)
 		return (EOPNOTSUPP);
 
 	if (rule->rr_per == RCTL_SUBJECT_TYPE_PROCESS &&
-	    racct_is_sloppy(rule->rr_resource))
+	    RACCT_IS_SLOPPY(rule->rr_resource))
 		return (EOPNOTSUPP);
 
 	/*
@@ -1002,15 +1008,15 @@ rctl_rule_add(struct rctl_rule *rule)
 		break;
 
 	case RCTL_SUBJECT_TYPE_LOGINCLASS:
-		lc = rule->rr_subject.hr_loginclass;
+		lc = rule->rr_subject.rs_loginclass;
 		KASSERT(lc != NULL, ("rctl_rule_add: NULL loginclass"));
 		rctl_racct_add_rule(lc->lc_racct, rule);
 		break;
 
 	case RCTL_SUBJECT_TYPE_JAIL:
-		pr = rule->rr_subject.rs_prison;
-		KASSERT(pr != NULL, ("rctl_rule_add: NULL pr"));
-		rctl_racct_add_rule(pr->pr_racct, rule);
+		prr = rule->rr_subject.rs_prison_racct;
+		KASSERT(prr != NULL, ("rctl_rule_add: NULL pr"));
+		rctl_racct_add_rule(prr->prr_racct, rule);
 		break;
 
 	default:
@@ -1034,13 +1040,13 @@ rctl_rule_add(struct rctl_rule *rule)
 				break;
 			continue;
 		case RCTL_SUBJECT_TYPE_LOGINCLASS:
-			if (cred->cr_loginclass == rule->rr_subject.hr_loginclass)
+			if (cred->cr_loginclass == rule->rr_subject.rs_loginclass)
 				break;
 			continue;
 		case RCTL_SUBJECT_TYPE_JAIL:
 			match = 0;
 			for (pr = cred->cr_prison; pr != NULL; pr = pr->pr_parent) {
-				if (pr == rule->rr_subject.rs_prison) {
+				if (pr->pr_prison_racct == rule->rr_subject.rs_prison_racct) {
 					match = 1;
 					break;
 				}
@@ -1137,18 +1143,18 @@ rctl_rule_to_sbuf(struct sbuf *sb, const struct rctl_rule *rule)
 			    rule->rr_subject.rs_uip->ui_uid);
 		break;
 	case RCTL_SUBJECT_TYPE_LOGINCLASS:
-		if (rule->rr_subject.hr_loginclass == NULL)
+		if (rule->rr_subject.rs_loginclass == NULL)
 			sbuf_printf(sb, ":");
 		else
 			sbuf_printf(sb, "%s:",
-			    rule->rr_subject.hr_loginclass->lc_name);
+			    rule->rr_subject.rs_loginclass->lc_name);
 		break;
 	case RCTL_SUBJECT_TYPE_JAIL:
-		if (rule->rr_subject.rs_prison == NULL)
+		if (rule->rr_subject.rs_prison_racct == NULL)
 			sbuf_printf(sb, ":");
 		else
 			sbuf_printf(sb, "%s:",
-			    rule->rr_subject.rs_prison->pr_name);
+			    rule->rr_subject.rs_prison_racct->prr_name);
 		break;
 	default:
 		panic("rctl_rule_to_sbuf: unknown subject type %d",
@@ -1157,8 +1163,8 @@ rctl_rule_to_sbuf(struct sbuf *sb, const struct rctl_rule *rule)
 
 	amount = rule->rr_amount;
 	if (amount != RCTL_AMOUNT_UNDEFINED &&
-	    racct_is_in_thousands(rule->rr_resource))
-		amount /= 1000;
+	    RACCT_IS_IN_MILLIONS(rule->rr_resource))
+		amount /= 1000000;
 
 	sbuf_printf(sb, "%s:%s=%jd",
 	    rctl_resource_name(rule->rr_resource),
@@ -1224,11 +1230,11 @@ rctl_racct_to_sbuf(struct racct *racct, int sloppy)
 
 	sb = sbuf_new_auto();
 	for (i = 0; i <= RACCT_MAX; i++) {
-		if (sloppy == 0 && racct_is_sloppy(i))
+		if (sloppy == 0 && RACCT_IS_SLOPPY(i))
 			continue;
 		amount = racct->r_resources[i];
-		if (racct_is_in_thousands(i))
-			amount /= 1000;
+		if (RACCT_IS_IN_MILLIONS(i))
+			amount /= 1000000;
 		sbuf_printf(sb, "%s=%jd,", rctl_resource_name(i), amount);
 	}
 	sbuf_setpos(sb, sbuf_len(sb) - 1);
@@ -1236,7 +1242,7 @@ rctl_racct_to_sbuf(struct racct *racct, int sloppy)
 }
 
 int
-rctl_get_racct(struct thread *td, struct rctl_get_racct_args *uap)
+sys_rctl_get_racct(struct thread *td, struct rctl_get_racct_args *uap)
 {
 	int error;
 	char *inputstr;
@@ -1245,9 +1251,9 @@ rctl_get_racct(struct thread *td, struct rctl_get_racct_args *uap)
 	struct proc *p;
 	struct uidinfo *uip;
 	struct loginclass *lc;
-	struct prison *pr;
+	struct prison_racct *prr;
 
-	error = priv_check(td, PRIV_RCTL_GET_USAGE);
+	error = priv_check(td, PRIV_RCTL_GET_RACCT);
 	if (error != 0)
 		return (error);
 
@@ -1256,11 +1262,9 @@ rctl_get_racct(struct thread *td, struct rctl_get_racct_args *uap)
 		return (error);
 
 	sx_slock(&allproc_lock);
-	sx_slock(&allprison_lock);
 	error = rctl_string_to_rule(inputstr, &filter);
 	free(inputstr, M_RCTL);
 	if (error != 0) {
-		sx_sunlock(&allprison_lock);
 		sx_sunlock(&allproc_lock);
 		return (error);
 	}
@@ -1287,7 +1291,7 @@ rctl_get_racct(struct thread *td, struct rctl_get_racct_args *uap)
 		outputsbuf = rctl_racct_to_sbuf(uip->ui_racct, 1);
 		break;
 	case RCTL_SUBJECT_TYPE_LOGINCLASS:
-		lc = filter->rr_subject.hr_loginclass;
+		lc = filter->rr_subject.rs_loginclass;
 		if (lc == NULL) {
 			error = EINVAL;
 			goto out;
@@ -1295,19 +1299,18 @@ rctl_get_racct(struct thread *td, struct rctl_get_racct_args *uap)
 		outputsbuf = rctl_racct_to_sbuf(lc->lc_racct, 1);
 		break;
 	case RCTL_SUBJECT_TYPE_JAIL:
-		pr = filter->rr_subject.rs_prison;
-		if (pr == NULL) {
+		prr = filter->rr_subject.rs_prison_racct;
+		if (prr == NULL) {
 			error = EINVAL;
 			goto out;
 		}
-		outputsbuf = rctl_racct_to_sbuf(pr->pr_racct, 1);
+		outputsbuf = rctl_racct_to_sbuf(prr->prr_racct, 1);
 		break;
 	default:
 		error = EINVAL;
 	}
 out:
 	rctl_rule_release(filter);
-	sx_sunlock(&allprison_lock);
 	sx_sunlock(&allproc_lock);
 	if (error != 0)
 		return (error);
@@ -1335,7 +1338,7 @@ rctl_get_rules_callback(struct racct *racct, void *arg2, void *arg3)
 }
 
 int
-rctl_get_rules(struct thread *td, struct rctl_get_rules_args *uap)
+sys_rctl_get_rules(struct thread *td, struct rctl_get_rules_args *uap)
 {
 	int error;
 	size_t bufsize = RCTL_DEFAULT_BUFSIZE;
@@ -1354,11 +1357,9 @@ rctl_get_rules(struct thread *td, struct rctl_get_rules_args *uap)
 		return (error);
 
 	sx_slock(&allproc_lock);
-	sx_slock(&allprison_lock);
 	error = rctl_string_to_rule(inputstr, &filter);
 	free(inputstr, M_RCTL);
 	if (error != 0) {
-		sx_sunlock(&allprison_lock);
 		sx_sunlock(&allproc_lock);
 		return (error);
 	}
@@ -1406,14 +1407,13 @@ again:
 	error = rctl_write_outbuf(sb, uap->outbufp, uap->outbuflen);
 
 	rctl_rule_release(filter);
-	sx_sunlock(&allprison_lock);
 	sx_sunlock(&allproc_lock);
 	free(buf, M_RCTL);
 	return (error);
 }
 
 int
-rctl_get_limits(struct thread *td, struct rctl_get_limits_args *uap)
+sys_rctl_get_limits(struct thread *td, struct rctl_get_limits_args *uap)
 {
 	int error;
 	size_t bufsize = RCTL_DEFAULT_BUFSIZE;
@@ -1431,30 +1431,25 @@ rctl_get_limits(struct thread *td, struct rctl_get_limits_args *uap)
 		return (error);
 
 	sx_slock(&allproc_lock);
-	sx_slock(&allprison_lock);
 	error = rctl_string_to_rule(inputstr, &filter);
 	free(inputstr, M_RCTL);
 	if (error != 0) {
-		sx_sunlock(&allprison_lock);
 		sx_sunlock(&allproc_lock);
 		return (error);
 	}
 
 	if (filter->rr_subject_type == RCTL_SUBJECT_TYPE_UNDEFINED) {
 		rctl_rule_release(filter);
-		sx_sunlock(&allprison_lock);
 		sx_sunlock(&allproc_lock);
 		return (EINVAL);
 	}
 	if (filter->rr_subject_type != RCTL_SUBJECT_TYPE_PROCESS) {
 		rctl_rule_release(filter);
-		sx_sunlock(&allprison_lock);
 		sx_sunlock(&allproc_lock);
 		return (EOPNOTSUPP);
 	}
 	if (filter->rr_subject.rs_proc == NULL) {
 		rctl_rule_release(filter);
-		sx_sunlock(&allprison_lock);
 		sx_sunlock(&allproc_lock);
 		return (EINVAL);
 	}
@@ -1486,14 +1481,13 @@ again:
 
 	error = rctl_write_outbuf(sb, uap->outbufp, uap->outbuflen);
 	rctl_rule_release(filter);
-	sx_sunlock(&allprison_lock);
 	sx_sunlock(&allproc_lock);
 	free(buf, M_RCTL);
 	return (error);
 }
 
 int
-rctl_add_rule(struct thread *td, struct rctl_add_rule_args *uap)
+sys_rctl_add_rule(struct thread *td, struct rctl_add_rule_args *uap)
 {
 	int error;
 	struct rctl_rule *rule;
@@ -1508,11 +1502,9 @@ rctl_add_rule(struct thread *td, struct rctl_add_rule_args *uap)
 		return (error);
 
 	sx_slock(&allproc_lock);
-	sx_slock(&allprison_lock);
 	error = rctl_string_to_rule(inputstr, &rule);
 	free(inputstr, M_RCTL);
 	if (error != 0) {
-		sx_sunlock(&allprison_lock);
 		sx_sunlock(&allproc_lock);
 		return (error);
 	}
@@ -1532,13 +1524,12 @@ rctl_add_rule(struct thread *td, struct rctl_add_rule_args *uap)
 
 out:
 	rctl_rule_release(rule);
-	sx_sunlock(&allprison_lock);
 	sx_sunlock(&allproc_lock);
 	return (error);
 }
 
 int
-rctl_remove_rule(struct thread *td, struct rctl_remove_rule_args *uap)
+sys_rctl_remove_rule(struct thread *td, struct rctl_remove_rule_args *uap)
 {
 	int error;
 	struct rctl_rule *filter;
@@ -1553,18 +1544,15 @@ rctl_remove_rule(struct thread *td, struct rctl_remove_rule_args *uap)
 		return (error);
 
 	sx_slock(&allproc_lock);
-	sx_slock(&allprison_lock);
 	error = rctl_string_to_rule(inputstr, &filter);
 	free(inputstr, M_RCTL);
 	if (error != 0) {
-		sx_sunlock(&allprison_lock);
 		sx_sunlock(&allproc_lock);
 		return (error);
 	}
 
 	error = rctl_rule_remove(filter);
 	rctl_rule_release(filter);
-	sx_sunlock(&allprison_lock);
 	sx_sunlock(&allproc_lock);
 
 	return (error);
@@ -1580,12 +1568,12 @@ rctl_proc_ucred_changed(struct proc *p, struct ucred *newcred)
 	struct rctl_rule_link *link, *newlink;
 	struct uidinfo *newuip;
 	struct loginclass *newlc;
-	struct prison *newpr;
+	struct prison_racct *newprr;
 	LIST_HEAD(, rctl_rule_link) newrules;
 
 	newuip = newcred->cr_ruidinfo;
 	newlc = newcred->cr_loginclass;
-	newpr = newcred->cr_prison;
+	newprr = newcred->cr_prison->pr_prison_racct;
 	
 	LIST_INIT(&newrules);
 
@@ -1605,7 +1593,7 @@ again:
 		rulecnt++;
 	LIST_FOREACH(link, &newlc->lc_racct->r_rule_links, rrl_next)
 		rulecnt++;
-	LIST_FOREACH(link, &newpr->pr_racct->r_rule_links, rrl_next)
+	LIST_FOREACH(link, &newprr->prr_racct->r_rule_links, rrl_next)
 		rulecnt++;
 	rw_runlock(&rctl_lock);
 
@@ -1655,7 +1643,7 @@ again:
 		rulecnt--;
 	}
 
-	LIST_FOREACH(link, &newpr->pr_racct->r_rule_links, rrl_next) {
+	LIST_FOREACH(link, &newprr->prr_racct->r_rule_links, rrl_next) {
 		if (newlink == NULL)
 			goto goaround;
 		rctl_rule_acquire(link->rrl_rule);
@@ -1813,35 +1801,35 @@ rctl_init(void)
 #else /* !RCTL */
 
 int
-rctl_get_racct(struct thread *td, struct rctl_get_racct_args *uap)
+sys_rctl_get_racct(struct thread *td, struct rctl_get_racct_args *uap)
 {
 	
 	return (ENOSYS);
 }
 
 int
-rctl_get_rules(struct thread *td, struct rctl_get_rules_args *uap)
+sys_rctl_get_rules(struct thread *td, struct rctl_get_rules_args *uap)
 {
 	
 	return (ENOSYS);
 }
 
 int
-rctl_get_limits(struct thread *td, struct rctl_get_limits_args *uap)
+sys_rctl_get_limits(struct thread *td, struct rctl_get_limits_args *uap)
 {
 	
 	return (ENOSYS);
 }
 
 int
-rctl_add_rule(struct thread *td, struct rctl_add_rule_args *uap)
+sys_rctl_add_rule(struct thread *td, struct rctl_add_rule_args *uap)
 {
 	
 	return (ENOSYS);
 }
 
 int
-rctl_remove_rule(struct thread *td, struct rctl_remove_rule_args *uap)
+sys_rctl_remove_rule(struct thread *td, struct rctl_remove_rule_args *uap)
 {
 	
 	return (ENOSYS);

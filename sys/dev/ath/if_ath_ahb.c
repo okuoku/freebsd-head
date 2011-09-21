@@ -78,15 +78,15 @@ struct ath_ahb_softc {
 };
 
 #define	VENDOR_ATHEROS	0x168c
-#define	AR9100_DEVID	0x000b
+#define	AR9130_DEVID	0x000b
 
 static int
 ath_ahb_probe(device_t dev)
 {
 	const char* devname;
 
-	/* Atheros / ar9100 */
-	devname = ath_hal_probe(VENDOR_ATHEROS, AR9100_DEVID);
+	/* Atheros / ar9130 */
+	devname = ath_hal_probe(VENDOR_ATHEROS, AR9130_DEVID);
 
 	if (devname != NULL) {
 		device_set_desc(dev, devname);
@@ -123,7 +123,7 @@ ath_ahb_attach(device_t dev)
 	device_printf(sc->sc_dev, "eeprom @ %p\n", (void *) eepromaddr);
 	psc->sc_eeprom = bus_alloc_resource(dev, SYS_RES_MEMORY, &rid, (uintptr_t) eepromaddr,
 	  (uintptr_t) eepromaddr + (uintptr_t) ((ATH_EEPROM_DATA_SIZE * 2) - 1), 0, RF_ACTIVE);
-	if (psc->sc_sr == NULL) {
+	if (psc->sc_eeprom == NULL) {
 		device_printf(dev, "cannot map eeprom space\n");
 		goto bad0;
 	}
@@ -139,6 +139,10 @@ ath_ahb_attach(device_t dev)
 
 	/* Copy the EEPROM data out */
 	sc->sc_eepromdata = malloc(ATH_EEPROM_DATA_SIZE * 2, M_TEMP, M_NOWAIT | M_ZERO);
+	if (sc->sc_eepromdata == NULL) {
+		device_printf(dev, "cannot allocate memory for eeprom data\n");
+		goto bad1;
+	}
 	device_printf(sc->sc_dev, "eeprom data @ %p\n", (void *) rman_get_bushandle(psc->sc_eeprom));
 	/* XXX why doesn't this work? -adrian */
 #if 0
@@ -187,7 +191,7 @@ ath_ahb_attach(device_t dev)
 
 	ATH_LOCK_INIT(sc);
 
-	error = ath_attach(AR9100_DEVID, sc);
+	error = ath_attach(AR9130_DEVID, sc);
 	if (error == 0)					/* success */
 		return 0;
 

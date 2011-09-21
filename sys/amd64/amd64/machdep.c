@@ -51,6 +51,7 @@ __FBSDID("$FreeBSD$");
 #include "opt_isa.h"
 #include "opt_kstack_pages.h"
 #include "opt_maxmem.h"
+#include "opt_mp_watchdog.h"
 #include "opt_perfmon.h"
 #include "opt_sched.h"
 #include "opt_kdtrace.h"
@@ -116,6 +117,7 @@ __FBSDID("$FreeBSD$");
 #include <x86/mca.h>
 #include <machine/md_var.h>
 #include <machine/metadata.h>
+#include <machine/mp_watchdog.h>
 #include <machine/pc/bios.h>
 #include <machine/pcb.h>
 #include <machine/proc.h>
@@ -419,7 +421,7 @@ sendsig(sig_t catcher, ksiginfo_t *ksi, sigset_t *mask)
  * MPSAFE
  */
 int
-sigreturn(td, uap)
+sys_sigreturn(td, uap)
 	struct thread *td;
 	struct sigreturn_args /* {
 		const struct __ucontext *sigcntxp;
@@ -515,7 +517,7 @@ int
 freebsd4_sigreturn(struct thread *td, struct freebsd4_sigreturn_args *uap)
 {
  
-	return sigreturn(td, (struct sigreturn_args *)uap);
+	return sys_sigreturn(td, (struct sigreturn_args *)uap);
 }
 #endif
 
@@ -545,21 +547,19 @@ cpu_flush_dcache(void *ptr, size_t len)
 int
 cpu_est_clockrate(int cpu_id, uint64_t *rate)
 {
-	register_t reg;
 	uint64_t tsc1, tsc2;
+	uint64_t acnt, mcnt, perf;
+	register_t reg;
 
 	if (pcpu_find(cpu_id) == NULL || rate == NULL)
 		return (EINVAL);
 
-	/* If TSC is P-state invariant, DELAY(9) based logic fails. */
-	if (tsc_is_invariant && tsc_freq != 0)
+	/*
+	 * If TSC is P-state invariant and APERF/MPERF MSRs do not exist,
+	 * DELAY(9) based logic fails.
+	 */
+	if (tsc_is_invariant && !tsc_perf_stat)
 		return (EOPNOTSUPP);
-
-	/* If we're booting, trust the rate calibrated moments ago. */
-	if (cold && tsc_freq != 0) {
-		*rate = tsc_freq;
-		return (0);
-	}
 
 #ifdef SMP
 	if (smp_cpus > 1) {
@@ -572,10 +572,24 @@ cpu_est_clockrate(int cpu_id, uint64_t *rate)
 
 	/* Calibrate by measuring a short delay. */
 	reg = intr_disable();
-	tsc1 = rdtsc();
-	DELAY(1000);
-	tsc2 = rdtsc();
-	intr_restore(reg);
+	if (tsc_is_invariant) {
+		wrmsr(MSR_MPERF, 0);
+		wrmsr(MSR_APERF, 0);
+		tsc1 = rdtsc();
+		DELAY(1000);
+		mcnt = rdmsr(MSR_MPERF);
+		acnt = rdmsr(MSR_APERF);
+		tsc2 = rdtsc();
+		intr_restore(reg);
+		perf = 1000 * acnt / mcnt;
+		*rate = (tsc2 - tsc1) * perf;
+	} else {
+		tsc1 = rdtsc();
+		DELAY(1000);
+		tsc2 = rdtsc();
+		intr_restore(reg);
+		*rate = (tsc2 - tsc1) * 1000;
+	}
 
 #ifdef SMP
 	if (smp_cpus > 1) {
@@ -585,17 +599,6 @@ cpu_est_clockrate(int cpu_id, uint64_t *rate)
 	}
 #endif
 
-	tsc2 -= tsc1;
-	if (tsc_freq != 0) {
-		*rate = tsc2 * 1000;
-		return (0);
-	}
-
-	/*
-	 * Subtract 0.5% of the total.  Empirical testing has shown that
-	 * overhead in DELAY() works out to approximately this value.
-	 */
-	*rate = tsc2 * 1000 - tsc2 * 5;
 	return (0);
 }
 
@@ -733,9 +736,8 @@ cpu_idle(int busy)
 
 	CTR2(KTR_SPARE2, "cpu_idle(%d) at %d",
 	    busy, curcpu);
-#ifdef SMP
-	if (mp_grab_cpu_hlt())
-		return;
+#ifdef MP_WATCHDOG
+	ap_watchdog(PCPU_GET(cpuid));
 #endif
 	/* If we are busy - try to use fast methods. */
 	if (busy) {
@@ -1297,9 +1299,6 @@ add_smap_entry(struct bios_smap *smap, vm_paddr_t *physmap, int *physmap_idxp)
  * available physical memory in the system, then test this memory and
  * build the phys_avail array describing the actually-available memory.
  *
- * If we cannot accurately determine the physical memory map, then use
- * value from the 0xE801 call, and failing that, the RTC.
- *
  * Total memory size may be set by the kernel environment variable
  * hw.physmem or the compile-time define MAXMEM.
  *
@@ -1310,7 +1309,7 @@ getmemsize(caddr_t kmdp, u_int64_t first)
 {
 	int i, physmap_idx, pa_indx, da_indx;
 	vm_paddr_t pa, physmap[PHYSMAP_SIZE];
-	u_long physmem_tunable;
+	u_long physmem_tunable, memtest;
 	pt_entry_t *pte;
 	struct bios_smap *smapbase, *smap, *smapend;
 	u_int32_t smapsize;
@@ -1371,6 +1370,13 @@ getmemsize(caddr_t kmdp, u_int64_t first)
 
 	if (TUNABLE_ULONG_FETCH("hw.physmem", &physmem_tunable))
 		Maxmem = atop(physmem_tunable);
+
+	/*
+	 * By default keep the memtest enabled.  Use a general name so that
+	 * one could eventually do more with the code than just disable it.
+	 */
+	memtest = 1;
+	TUNABLE_ULONG_FETCH("hw.memtest.tests", &memtest);
 
 	/*
 	 * Don't allow MAXMEM or hw.physmem to extend the amount of memory
@@ -1434,6 +1440,8 @@ getmemsize(caddr_t kmdp, u_int64_t first)
 				goto do_dump_avail;
 
 			page_bad = FALSE;
+			if (memtest == 0)
+				goto skip_memtest;
 
 			/*
 			 * map page into kernel: valid, read/write,non-cacheable
@@ -1471,6 +1479,7 @@ getmemsize(caddr_t kmdp, u_int64_t first)
 			 */
 			*(int *)ptr = tmp;
 
+skip_memtest:
 			/*
 			 * Adjust array of valid/good pages.
 			 */

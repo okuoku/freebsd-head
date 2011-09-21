@@ -82,8 +82,30 @@ ar9160AniSetup(struct ath_hal *ah)
 	};
 
 	/* NB: disable ANI noise immmunity for reliable RIFS rx */
-	AH5416(ah)->ah_ani_function &= ~ HAL_ANI_NOISE_IMMUNITY_LEVEL;
+	AH5416(ah)->ah_ani_function &= ~(1 << HAL_ANI_NOISE_IMMUNITY_LEVEL);
 	ar5416AniAttach(ah, &aniparams, &aniparams, AH_TRUE);
+}
+
+static void 
+ar9160InitPLL(struct ath_hal *ah, const struct ieee80211_channel *chan)
+{
+	uint32_t pll = SM(0x5, AR_RTC_SOWL_PLL_REFDIV);
+	if (chan != AH_NULL) {
+		if (IEEE80211_IS_CHAN_HALF(chan))
+			pll |= SM(0x1, AR_RTC_SOWL_PLL_CLKSEL);
+		else if (IEEE80211_IS_CHAN_QUARTER(chan))
+			pll |= SM(0x2, AR_RTC_SOWL_PLL_CLKSEL);
+
+		if (IEEE80211_IS_CHAN_5GHZ(chan))
+			pll |= SM(0x50, AR_RTC_SOWL_PLL_DIV);
+		else
+			pll |= SM(0x58, AR_RTC_SOWL_PLL_DIV);
+	} else
+		pll |= SM(0x58, AR_RTC_SOWL_PLL_DIV);
+
+	OS_REG_WRITE(ah, AR_RTC_PLL_CONTROL, pll);
+	OS_DELAY(RTC_PLL_SETTLE_DELAY);
+	OS_REG_WRITE(ah, AR_RTC_SLEEP_CLK, AR_RTC_SLEEP_DERIVED_CLK);
 }
 
 /*
@@ -101,13 +123,13 @@ ar9160Attach(uint16_t devid, HAL_SOFTC sc,
 	HAL_STATUS ecode;
 	HAL_BOOL rfStatus;
 
-	HALDEBUG(AH_NULL, HAL_DEBUG_ATTACH, "%s: sc %p st %p sh %p\n",
+	HALDEBUG_G(AH_NULL, HAL_DEBUG_ATTACH, "%s: sc %p st %p sh %p\n",
 	    __func__, sc, (void*) st, (void*) sh);
 
 	/* NB: memory is returned zero'd */
 	ahp5416 = ath_hal_malloc(sizeof (struct ath_hal_5416));
 	if (ahp5416 == AH_NULL) {
-		HALDEBUG(AH_NULL, HAL_DEBUG_ANY,
+		HALDEBUG_G(AH_NULL, HAL_DEBUG_ANY,
 		    "%s: cannot allocate memory for state block\n", __func__);
 		*status = HAL_ENOMEM;
 		return AH_NULL;
@@ -118,6 +140,7 @@ ar9160Attach(uint16_t devid, HAL_SOFTC sc,
 
 	/* XXX override with 9160 specific state */
 	/* override 5416 methods for our needs */
+	AH5416(ah)->ah_initPLL = ar9160InitPLL;
 
 	AH5416(ah)->ah_cal.iqCalData.calData = &ar9160_iq_cal;
 	AH5416(ah)->ah_cal.adcGainCalData.calData = &ar9160_adc_gain_cal;
@@ -241,6 +264,8 @@ ar9160Attach(uint16_t devid, HAL_SOFTC sc,
 	/* Read Reg Domain */
 	AH_PRIVATE(ah)->ah_currentRD =
 	    ath_hal_eepromGet(ah, AR_EEP_REGDMN_0, AH_NULL);
+	AH_PRIVATE(ah)->ah_currentRDext =
+	    ath_hal_eepromGet(ah, AR_EEP_REGDMN_1, AH_NULL);
 
 	/*
 	 * ah_miscMode is populated by ar5416FillCapabilityInfo()
@@ -291,7 +316,11 @@ ar9160FillCapabilityInfo(struct ath_hal *ah)
 	pCap->halRifsTxSupport = AH_TRUE;
 	pCap->halRtsAggrLimit = 64*1024;	/* 802.11n max */
 	pCap->halExtChanDfsSupport = AH_TRUE;
+	pCap->halUseCombinedRadarRssi = AH_TRUE;
 	pCap->halAutoSleepSupport = AH_FALSE;	/* XXX? */
+	pCap->halMbssidAggrSupport = AH_TRUE;
+	pCap->hal4AddrAggrSupport = AH_TRUE;
+
 	/* AR9160 is a 2x2 stream device */
 	pCap->halTxStreams = 2;
 	pCap->halRxStreams = 2;

@@ -62,6 +62,7 @@ __FBSDID("$FreeBSD$");
 #include <dev/pci/pcivar.h>
 #include <dev/pci/pci_private.h>
 
+#include <dev/usb/controller/xhcireg.h>
 #include <dev/usb/controller/ehcireg.h>
 #include <dev/usb/controller/ohcireg.h>
 #include <dev/usb/controller/uhcireg.h>
@@ -142,6 +143,7 @@ static device_method_t pci_methods[] = {
 	DEVMETHOD(bus_get_resource,	bus_generic_rl_get_resource),
 	DEVMETHOD(bus_delete_resource,	pci_delete_resource),
 	DEVMETHOD(bus_alloc_resource,	pci_alloc_resource),
+	DEVMETHOD(bus_adjust_resource,	bus_generic_adjust_resource),
 	DEVMETHOD(bus_release_resource,	bus_generic_rl_release_resource),
 	DEVMETHOD(bus_activate_resource, pci_activate_resource),
 	DEVMETHOD(bus_deactivate_resource, pci_deactivate_resource),
@@ -296,7 +298,7 @@ static int pci_usb_takeover = 1;
 static int pci_usb_takeover = 0;
 #endif
 TUNABLE_INT("hw.pci.usb_early_takeover", &pci_usb_takeover);
-SYSCTL_INT(_hw_pci, OID_AUTO, usb_early_takeover, CTLFLAG_RD | CTLFLAG_TUN,
+SYSCTL_INT(_hw_pci, OID_AUTO, usb_early_takeover, CTLFLAG_RDTUN,
     &pci_usb_takeover, 1, "Enable early takeover of USB controllers.\n\
 Disable this if you depend on BIOS emulation of USB devices, that is\n\
 you use USB devices (like keyboard or mouse) but do not load USB drivers");
@@ -339,6 +341,21 @@ pci_find_device(uint16_t vendor, uint16_t device)
 	STAILQ_FOREACH(dinfo, &pci_devq, pci_links) {
 		if ((dinfo->cfg.vendor == vendor) &&
 		    (dinfo->cfg.device == device)) {
+			return (dinfo->cfg.dev);
+		}
+	}
+
+	return (NULL);
+}
+
+device_t
+pci_find_class(uint8_t class, uint8_t subclass)
+{
+	struct pci_devinfo *dinfo;
+
+	STAILQ_FOREACH(dinfo, &pci_devq, pci_links) {
+		if (dinfo->cfg.baseclass == class &&
+		    dinfo->cfg.subclass == subclass) {
 			return (dinfo->cfg.dev);
 		}
 	}
@@ -1337,8 +1354,11 @@ pci_alloc_msix_method(device_t dev, device_t child, int *count)
 	for (i = 0; i < max; i++) {
 		/* Allocate a message. */
 		error = PCIB_ALLOC_MSIX(device_get_parent(dev), child, &irq);
-		if (error)
+		if (error) {
+			if (i == 0)
+				return (error);
 			break;
+		}
 		resource_list_add(&dinfo->resources, SYS_RES_IRQ, i + 1, irq,
 		    irq, 1);
 	}
@@ -1969,7 +1989,7 @@ pci_alloc_msi_method(device_t dev, device_t child, int *count)
 	for (;;) {
 		/* Try to allocate N messages. */
 		error = PCIB_ALLOC_MSI(device_get_parent(dev), child, actual,
-		    cfg->msi.msi_msgnum, irqs);
+		    actual, irqs);
 		if (error == 0)
 			break;
 		if (actual == 1)
@@ -2481,7 +2501,8 @@ pci_write_bar(device_t dev, struct pci_map *pm, pci_addr_t base)
 		pci_write_config(dev, pm->pm_reg + 4, base >> 32, 4);
 	pm->pm_value = pci_read_config(dev, pm->pm_reg, 4);
 	if (ln2range == 64)
-		pm->pm_value |= (pci_addr_t)pci_read_config(dev, pm->pm_reg + 4, 4) << 32;
+		pm->pm_value |= (pci_addr_t)pci_read_config(dev,
+		    pm->pm_reg + 4, 4) << 32;
 }
 
 struct pci_map *
@@ -2574,6 +2595,17 @@ pci_add_map(device_t bus, device_t dev, int reg, struct resource_list *rl,
 	int barlen, basezero, maprange, mapsize, type;
 	uint16_t cmd;
 	struct resource *res;
+
+	/*
+	 * The BAR may already exist if the device is a CardBus card
+	 * whose CIS is stored in this BAR.
+	 */
+	pm = pci_find_bar(dev, reg);
+	if (pm != NULL) {
+		maprange = pci_maprange(pm->pm_value);
+		barlen = maprange == 64 ? 2 : 1;
+		return (barlen);
+	}
 
 	pci_read_bar(dev, reg, &map, &testval);
 	if (PCI_BAR_MEM(map)) {
@@ -2668,7 +2700,7 @@ pci_add_map(device_t bus, device_t dev, int reg, struct resource_list *rl,
 	count = (pci_addr_t)1 << mapsize;
 	if (basezero || base == pci_mapbase(testval)) {
 		start = 0;	/* Let the parent decide. */
-		end = ~0ULL;
+		end = ~0ul;
 	} else {
 		start = base;
 		end = base + count - 1;
@@ -2925,6 +2957,68 @@ ehci_early_takeover(device_t self)
 	bus_release_resource(self, SYS_RES_MEMORY, rid, res);
 }
 
+/* Perform early XHCI takeover from SMM. */
+static void
+xhci_early_takeover(device_t self)
+{
+	struct resource *res;
+	uint32_t cparams;
+	uint32_t eec;
+	uint8_t eecp;
+	uint8_t bios_sem;
+	uint8_t offs;
+	int rid;
+	int i;
+
+	rid = PCIR_BAR(0);
+	res = bus_alloc_resource_any(self, SYS_RES_MEMORY, &rid, RF_ACTIVE);
+	if (res == NULL)
+		return;
+
+	cparams = bus_read_4(res, XHCI_HCSPARAMS0);
+
+	eec = -1;
+
+	/* Synchronise with the BIOS if it owns the controller. */
+	for (eecp = XHCI_HCS0_XECP(cparams) << 2; eecp != 0 && XHCI_XECP_NEXT(eec);
+	    eecp += XHCI_XECP_NEXT(eec) << 2) {
+		eec = bus_read_4(res, eecp);
+
+		if (XHCI_XECP_ID(eec) != XHCI_ID_USB_LEGACY)
+			continue;
+
+		bios_sem = bus_read_1(res, eecp + XHCI_XECP_BIOS_SEM);
+		if (bios_sem == 0)
+			continue;
+
+		if (bootverbose)
+			printf("xhci early: "
+			    "SMM active, request owner change\n");
+
+		bus_write_1(res, eecp + XHCI_XECP_OS_SEM, 1);
+
+		/* wait a maximum of 5 second */
+
+		for (i = 0; (i < 5000) && (bios_sem != 0); i++) {
+			DELAY(1000);
+			bios_sem = bus_read_1(res, eecp +
+			    XHCI_XECP_BIOS_SEM);
+		}
+
+		if (bios_sem != 0) {
+			if (bootverbose)
+				printf("xhci early: "
+				    "SMM does not respond\n");
+		}
+
+		/* Disable interrupts */
+		offs = bus_read_1(res, XHCI_CAPLENGTH);
+		bus_write_4(res, offs + XHCI_USBCMD, 0);
+		bus_read_4(res, offs + XHCI_USBSTS);
+	}
+	bus_release_resource(self, SYS_RES_MEMORY, rid, res);
+}
+
 void
 pci_add_resources(device_t bus, device_t dev, int force, uint32_t prefetchmask)
 {
@@ -2971,7 +3065,9 @@ pci_add_resources(device_t bus, device_t dev, int force, uint32_t prefetchmask)
 
 	if (pci_usb_takeover && pci_get_class(dev) == PCIC_SERIALBUS &&
 	    pci_get_subclass(dev) == PCIS_SERIALBUS_USB) {
-		if (pci_get_progif(dev) == PCIP_SERIALBUS_USB_EHCI)
+		if (pci_get_progif(dev) == PCIP_SERIALBUS_USB_XHCI)
+			xhci_early_takeover(dev);
+		else if (pci_get_progif(dev) == PCIP_SERIALBUS_USB_EHCI)
 			ehci_early_takeover(dev);
 		else if (pci_get_progif(dev) == PCIP_SERIALBUS_USB_OHCI)
 			ohci_early_takeover(dev);
@@ -3966,6 +4062,26 @@ pci_alloc_resource(device_t dev, device_t child, int type, int *rid,
 		break;
 	case SYS_RES_IOPORT:
 	case SYS_RES_MEMORY:
+#ifdef NEW_PCIB
+		/*
+		 * PCI-PCI bridge I/O window resources are not BARs.
+		 * For those allocations just pass the request up the
+		 * tree.
+		 */
+		if (cfg->hdrtype == PCIM_HDRTYPE_BRIDGE) {
+			switch (*rid) {
+			case PCIR_IOBASEL_1:
+			case PCIR_MEMBASE_1:
+			case PCIR_PMBASEL_1:
+				/*
+				 * XXX: Should we bother creating a resource
+				 * list entry?
+				 */
+				return (bus_generic_alloc_resource(dev, child,
+				    type, rid, start, end, count, flags));
+			}
+		}
+#endif
 		/* Reserve resources for this BAR if needed. */
 		rle = resource_list_find(rl, type, *rid);
 		if (rle == NULL) {

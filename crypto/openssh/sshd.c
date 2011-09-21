@@ -1,4 +1,5 @@
-/* $OpenBSD: sshd.c,v 1.375 2010/04/16 01:47:26 djm Exp $ */
+/* $OpenBSD: sshd.c,v 1.381 2011/01/11 06:13:10 djm Exp $ */
+/* $FreeBSD$ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -429,7 +430,7 @@ sshd_exchange_identification(int sock_in, int sock_out)
 		minor = PROTOCOL_MINOR_1;
 	}
 	snprintf(buf, sizeof buf, "SSH-%d.%d-%.100s%s", major, minor,
-	    SSH_VERSION, newline);
+	    SSH_RELEASE, newline);
 	server_version_string = xstrdup(buf);
 
 	/* Send our protocol version identification. */
@@ -744,6 +745,7 @@ list_hostkey_types(void)
 		switch (key->type) {
 		case KEY_RSA:
 		case KEY_DSA:
+		case KEY_ECDSA:
 			if (buffer_len(&b) > 0)
 				buffer_append(&b, ",", 1);
 			p = key_ssh_name(key);
@@ -759,6 +761,7 @@ list_hostkey_types(void)
 		case KEY_DSA_CERT_V00:
 		case KEY_RSA_CERT:
 		case KEY_DSA_CERT:
+		case KEY_ECDSA_CERT:
 			if (buffer_len(&b) > 0)
 				buffer_append(&b, ",", 1);
 			p = key_ssh_name(key);
@@ -785,6 +788,7 @@ get_hostkey_by_type(int type, int need_private)
 		case KEY_DSA_CERT_V00:
 		case KEY_RSA_CERT:
 		case KEY_DSA_CERT:
+		case KEY_ECDSA_CERT:
 			key = sensitive_data.host_certificates[i];
 			break;
 		default:
@@ -1008,6 +1012,8 @@ server_listen(void)
 	int ret, listen_sock, on = 1;
 	struct addrinfo *ai;
 	char ntop[NI_MAXHOST], strport[NI_MAXSERV];
+	int socksize;
+	socklen_t len;
 
 	for (ai = options.listen_addrs; ai; ai = ai->ai_next) {
 		if (ai->ai_family != AF_INET && ai->ai_family != AF_INET6)
@@ -1047,6 +1053,11 @@ server_listen(void)
 			sock_set_v6only(listen_sock);
 
 		debug("Bind to port %s on %s.", strport, ntop);
+
+		len = sizeof(socksize);
+		getsockopt(listen_sock, SOL_SOCKET, SO_RCVBUF, &socksize, &len);
+		debug("Server TCP RWIN socket size: %d", socksize);
+		debug("HPN Buffer Size: %d", options.hpn_buffer_size);
 
 		/* Bind the socket to the desired port. */
 		if (bind(listen_sock, ai->ai_addr, ai->ai_addrlen) < 0) {
@@ -1475,7 +1486,7 @@ main(int ac, char **av)
 	else
 		closefrom(REEXEC_DEVCRYPTO_RESERVED_FD);
 
-	SSLeay_add_all_algorithms();
+	OpenSSL_add_all_algorithms();
 
 	/*
 	 * Force logging to stderr until we have loaded the private host
@@ -1587,6 +1598,7 @@ main(int ac, char **av)
 			break;
 		case KEY_RSA:
 		case KEY_DSA:
+		case KEY_ECDSA:
 			sensitive_data.have_ssh2_key = 1;
 			break;
 		}
@@ -1956,6 +1968,9 @@ main(int ac, char **av)
 	/* Log the connection. */
 	verbose("Connection from %.500s port %d", remote_ip, remote_port);
 
+	/* Set HPN options for the child. */
+	channel_set_hpn(options.hpn_disabled, options.hpn_buffer_size);
+
 	/*
 	 * We don't want to listen forever unless the other side
 	 * successfully authenticates itself.  So we set up an alarm which is
@@ -2061,7 +2076,8 @@ main(int ac, char **av)
 	/* The connection has been terminated. */
 	packet_get_state(MODE_IN, NULL, NULL, NULL, &ibytes);
 	packet_get_state(MODE_OUT, NULL, NULL, NULL, &obytes);
-	verbose("Transferred: sent %llu, received %llu bytes", obytes, ibytes);
+	verbose("Transferred: sent %llu, received %llu bytes",
+	    (unsigned long long)obytes, (unsigned long long)ibytes);
 
 	verbose("Closing connection to %.500s port %d", remote_ip, remote_port);
 
@@ -2314,6 +2330,12 @@ do_ssh2_kex(void)
 	if (options.ciphers != NULL) {
 		myproposal[PROPOSAL_ENC_ALGS_CTOS] =
 		myproposal[PROPOSAL_ENC_ALGS_STOC] = options.ciphers;
+#ifdef	NONE_CIPHER_ENABLED
+	} else if (options.none_enabled == 1) {
+		debug ("WARNING: None cipher enabled");
+		myproposal[PROPOSAL_ENC_ALGS_CTOS] =
+		myproposal[PROPOSAL_ENC_ALGS_STOC] = KEX_ENCRYPT_INCLUDE_NONE;
+#endif
 	}
 	myproposal[PROPOSAL_ENC_ALGS_CTOS] =
 	    compat_cipher_proposal(myproposal[PROPOSAL_ENC_ALGS_CTOS]);
@@ -2331,6 +2353,8 @@ do_ssh2_kex(void)
 		myproposal[PROPOSAL_COMP_ALGS_CTOS] =
 		myproposal[PROPOSAL_COMP_ALGS_STOC] = "none,zlib@openssh.com";
 	}
+	if (options.kex_algorithms != NULL)
+		myproposal[PROPOSAL_KEX_ALGS] = options.kex_algorithms;
 
 	myproposal[PROPOSAL_SERVER_HOST_KEY_ALGS] = list_hostkey_types();
 
@@ -2340,6 +2364,7 @@ do_ssh2_kex(void)
 	kex->kex[KEX_DH_GRP14_SHA1] = kexdh_server;
 	kex->kex[KEX_DH_GEX_SHA1] = kexgex_server;
 	kex->kex[KEX_DH_GEX_SHA256] = kexgex_server;
+	kex->kex[KEX_ECDH_SHA2] = kexecdh_server;
 	kex->server = 1;
 	kex->client_version_string=client_version_string;
 	kex->server_version_string=server_version_string;

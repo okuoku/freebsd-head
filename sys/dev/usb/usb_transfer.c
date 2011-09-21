@@ -2417,8 +2417,9 @@ usbd_transfer_start_cb(void *arg)
 #if USB_HAVE_PF
 	usbpf_xfertap(xfer, USBPF_XFERTAP_SUBMIT);
 #endif
-	/* start the transfer */
-	(ep->methods->start) (xfer);
+	/* start USB transfer, if no error */
+	if (xfer->error == 0)
+		(ep->methods->start) (xfer);
 
 	xfer->flags_int.can_cancel_immed = 1;
 
@@ -2597,8 +2598,9 @@ usbd_pipe_start(struct usb_xfer_queue *pq)
 #if USB_HAVE_PF
 	usbpf_xfertap(xfer, USBPF_XFERTAP_SUBMIT);
 #endif
-	/* start USB transfer */
-	(ep->methods->start) (xfer);
+	/* start USB transfer, if no error */
+	if (xfer->error == 0)
+		(ep->methods->start) (xfer);
 
 	xfer->flags_int.can_cancel_immed = 1;
 
@@ -2926,6 +2928,11 @@ repeat:
 	 * Unsetup any existing USB transfer:
 	 */
 	usbd_transfer_unsetup(udev->ctrl_xfer, USB_CTRL_XFER_MAX);
+
+	/*
+	 * Reset clear stall error counter.
+	 */
+	udev->clear_stall_errors = 0;
 
 	/*
 	 * Try to setup a new USB transfer for the

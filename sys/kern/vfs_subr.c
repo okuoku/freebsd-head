@@ -42,6 +42,7 @@
 __FBSDID("$FreeBSD$");
 
 #include "opt_ddb.h"
+#include "opt_watchdog.h"
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -72,6 +73,9 @@ __FBSDID("$FreeBSD$");
 #include <sys/syslog.h>
 #include <sys/vmmeter.h>
 #include <sys/vnode.h>
+#ifdef SW_WATCHDOG
+#include <sys/watchdog.h>
+#endif
 
 #include <machine/stdarg.h>
 
@@ -377,9 +381,10 @@ vfs_busy(struct mount *mp, int flags)
 		if (flags & MBF_MNTLSTLOCK)
 			mtx_unlock(&mountlist_mtx);
 		mp->mnt_kern_flag |= MNTK_MWAIT;
-		msleep(mp, MNT_MTX(mp), PVFS, "vfs_busy", 0);
+		msleep(mp, MNT_MTX(mp), PVFS | PDROP, "vfs_busy", 0);
 		if (flags & MBF_MNTLSTLOCK)
 			mtx_lock(&mountlist_mtx);
+		MNT_ILOCK(mp);
 	}
 	if (flags & MBF_MNTLSTLOCK)
 		mtx_unlock(&mountlist_mtx);
@@ -713,7 +718,7 @@ next_iter:
 			continue;
 		MNT_IUNLOCK(mp);
 yield:
-		kern_yield(-1);
+		kern_yield(PRI_UNCHANGED);
 relock_mnt:
 		MNT_ILOCK(mp);
 	}
@@ -826,7 +831,7 @@ vnlru_proc(void)
 			vnlru_nowhere++;
 			tsleep(vnlruproc, PPAUSE, "vlrup", hz * 3);
 		} else
-			kern_yield(-1);
+			kern_yield(PRI_UNCHANGED);
 	}
 }
 
@@ -1185,8 +1190,8 @@ bufobj_invalbuf(struct bufobj *bo, int flags, int slpflag, int slptimeo)
 	 */
 	if (bo->bo_object != NULL && (flags & (V_ALT | V_NORMAL)) == 0) {
 		VM_OBJECT_LOCK(bo->bo_object);
-		vm_object_page_remove(bo->bo_object, 0, 0,
-			(flags & V_SAVE) ? TRUE : FALSE);
+		vm_object_page_remove(bo->bo_object, 0, 0, (flags & V_SAVE) ?
+		    OBJPR_CLEANONLY : 0);
 		VM_OBJECT_UNLOCK(bo->bo_object);
 	}
 
@@ -1838,6 +1843,10 @@ sched_sync(void)
 				LIST_INSERT_HEAD(next, bo, bo_synclist);
 				continue;
 			}
+#ifdef SW_WATCHDOG
+			if (first_printf == 0)
+				wdog_kern_pat(WD_LASTVAL);
+#endif
 		}
 		if (!LIST_EMPTY(gslp)) {
 			mtx_unlock(&sync_mtx);
@@ -2832,6 +2841,7 @@ DB_SHOW_COMMAND(mount, db_show_mount)
 	MNT_FLAG(MNT_ASYNC);
 	MNT_FLAG(MNT_SUIDDIR);
 	MNT_FLAG(MNT_SOFTDEP);
+	MNT_FLAG(MNT_SUJ);
 	MNT_FLAG(MNT_NOSYMFOLLOW);
 	MNT_FLAG(MNT_GJOURNAL);
 	MNT_FLAG(MNT_MULTILABEL);
@@ -2857,7 +2867,6 @@ DB_SHOW_COMMAND(mount, db_show_mount)
 	MNT_FLAG(MNT_FORCE);
 	MNT_FLAG(MNT_SNAPSHOT);
 	MNT_FLAG(MNT_BYFSID);
-	MNT_FLAG(MNT_SOFTDEP);
 #undef MNT_FLAG
 	if (flags != 0) {
 		if (buf[0] != '\0')
@@ -2885,7 +2894,6 @@ DB_SHOW_COMMAND(mount, db_show_mount)
 	MNT_KERN_FLAG(MNTK_REFEXPIRE);
 	MNT_KERN_FLAG(MNTK_EXTENDED_SHARED);
 	MNT_KERN_FLAG(MNTK_SHARED_WRITES);
-	MNT_KERN_FLAG(MNTK_SUJ);
 	MNT_KERN_FLAG(MNTK_UNMOUNT);
 	MNT_KERN_FLAG(MNTK_MWAIT);
 	MNT_KERN_FLAG(MNTK_SUSPEND);
@@ -3304,6 +3312,7 @@ vbusy(struct vnode *vp)
 static void
 destroy_vpollinfo(struct vpollinfo *vi)
 {
+	seldrain(&vi->vpi_selinfo);
 	knlist_destroy(&vi->vpi_selinfo.si_note);
 	mtx_destroy(&vi->vpi_lock);
 	uma_zfree(vnodepoll_zone, vi);
@@ -3581,9 +3590,6 @@ vn_isdisk(struct vnode *vp, int *errp)
  * and optional call-by-reference privused argument allowing vaccess()
  * to indicate to the caller whether privilege was used to satisfy the
  * request (obsoleted).  Returns 0 on success, or an errno on failure.
- *
- * The ifdef'd CAPABILITIES version is here for reference, but is not
- * actually used.
  */
 int
 vaccess(enum vtype type, mode_t file_mode, uid_t file_uid, gid_t file_gid,

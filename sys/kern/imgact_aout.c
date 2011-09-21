@@ -37,6 +37,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/malloc.h>
 #include <sys/mutex.h>
 #include <sys/proc.h>
+#include <sys/racct.h>
 #include <sys/resourcevar.h>
 #include <sys/signalvar.h>
 #include <sys/syscall.h>
@@ -102,7 +103,7 @@ struct sysentvec aout_sysvec = {
 
 #elif defined(__amd64__)
 
-#define	AOUT32_USRSTACK	0xbfc0000
+#define	AOUT32_USRSTACK	0xbfc00000
 #define	AOUT32_PS_STRINGS \
     (AOUT32_USRSTACK - sizeof(struct freebsd32_ps_strings))
 
@@ -151,7 +152,7 @@ aout_fixup(register_t **stack_base, struct image_params *imgp)
 {
 
 	*(char **)stack_base -= sizeof(uint32_t);
-	return (suword(*stack_base, imgp->args->argc));
+	return (suword32(*stack_base, imgp->args->argc));
 }
 
 static int
@@ -245,7 +246,8 @@ exec_aout_imgact(struct image_params *imgp)
 	    a_out->a_text > maxtsiz ||
 
 	    /* data + bss can't exceed rlimit */
-	    a_out->a_data + bss_size > lim_cur(imgp->proc, RLIMIT_DATA)) {
+	    a_out->a_data + bss_size > lim_cur(imgp->proc, RLIMIT_DATA) ||
+	    racct_set(imgp->proc, RACCT_DATA, a_out->a_data + bss_size) != 0) {
 			PROC_UNLOCK(imgp->proc);
 			return (ENOMEM);
 	}

@@ -84,7 +84,7 @@
         ..
     ..
     clang
-        2.9
+        3.0
         ..
     ..
     crypto
@@ -282,8 +282,6 @@
     nfsclient
     ..
     nfsserver
-    ..
-    objc
     ..
     openssl
     ..

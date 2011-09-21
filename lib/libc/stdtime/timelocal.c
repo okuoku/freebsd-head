@@ -31,7 +31,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/libc/stdtime/timelocal.c 116274 2003-06-13 00:14:07Z jkh $");
+__FBSDID("$FreeBSD$");
 
 #include <stddef.h>
 
@@ -144,7 +144,7 @@ extern void* __time_load(const char* name, locale_t loc)
 {
 	struct xlocale_time *new = calloc(sizeof(struct xlocale_time), 1);
 	new->header.header.destructor = destruct_time;
-	if (time_load_locale(new, &loc->using_time_locale, name) != _LDP_LOADED)
+	if (time_load_locale(new, &loc->using_time_locale, name) == _LDP_ERROR)
 	{
 		xlocale_release(new);
 		return NULL;

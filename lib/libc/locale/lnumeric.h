@@ -28,7 +28,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $FreeBSD: head/lib/libc/locale/lnumeric.h 88309 2001-12-20 18:28:52Z phantom $
+ * $FreeBSD$
  */
 
 #ifndef _LNUMERIC_H_

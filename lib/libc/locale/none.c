@@ -40,7 +40,7 @@
 static char sccsid[] = "@(#)none.c	8.1 (Berkeley) 6/4/93";
 #endif /* LIBC_SCCS and not lint */
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/libc/locale/none.c 172619 2007-10-13 16:28:22Z ache $");
+__FBSDID("$FreeBSD$");
 
 #include <errno.h>
 #include <limits.h>
@@ -208,4 +208,3 @@ struct xlocale_ctype __xlocale_global_ctype = {
 	1, /* __mb_cur_max, */
 	256 /* __mb_sb_limit */
 };
-

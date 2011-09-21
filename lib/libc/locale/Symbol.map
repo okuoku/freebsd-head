@@ -1,5 +1,5 @@
 /*
- * $FreeBSD: head/lib/libc/locale/Symbol.map 172619 2007-10-13 16:28:22Z ache $
+ * $FreeBSD$
  */
 
 FBSD_1.0 {
@@ -177,6 +177,7 @@ FBSD_1.0 {
 	wctype_l;
 	nextwctype_l;
 	___mb_cur_max;
+	___mb_cur_max_l;
 	towctrans_l;
 	wctrans_l;
 	wcsftime_l;
@@ -189,6 +190,7 @@ FBSD_1.0 {
 	wcstoul_l;
 	wcstoull_l;
 	wcstoumax_l;
+	__runes_for_locale;
 };
 
 FBSDprivate_1.0 {

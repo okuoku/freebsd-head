@@ -119,7 +119,7 @@ _XLOCALE_INLINE int towupper_l(int c, locale_t locale)
 	int mb_sb_limit;
 	_RuneLocale *runes = __runes_for_locale(locale, &mb_sb_limit);
 	return (c < 0 || c >= _CACHED_RUNES) ? ___toupper_l(c, locale) :
-	       runes->__maplower[c];
+	       runes->__mapupper[c];
 }
 _XLOCALE_INLINE int
 __wcwidth_l(__ct_rune_t _c, locale_t locale)
@@ -155,6 +155,6 @@ _XLOCALE_INLINE int toupper_l(int c, locale_t locale)
 	int mb_sb_limit;
 	_RuneLocale *runes = __runes_for_locale(locale, &mb_sb_limit);
 	return (c < 0 || c >= mb_sb_limit) ? c :
-	       runes->__maplower[c];
+	       runes->__mapupper[c];
 }
 #endif

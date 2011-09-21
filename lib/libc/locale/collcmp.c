@@ -30,7 +30,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/libc/locale/collcmp.c 142653 2005-02-27 14:54:23Z phantom $");
+__FBSDID("$FreeBSD$");
 
 #include <string.h>
 #include <xlocale.h>

@@ -30,7 +30,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/libc/locale/wctrans.c 121852 2003-11-01 08:20:58Z tjr $");
+__FBSDID("$FreeBSD$");
 
 #include <errno.h>
 #include <string.h>

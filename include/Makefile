@@ -1,5 +1,5 @@
 #	@(#)Makefile	8.2 (Berkeley) 1/4/94
-# $FreeBSD: head/include/Makefile 220370 2011-04-05 18:41:01Z obrien $
+# $FreeBSD$
 #
 # Doing a "make install" builds /usr/include.
 

@@ -36,7 +36,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/libc/locale/collate.c 142686 2005-02-27 20:31:13Z ru $");
+__FBSDID("$FreeBSD$");
 
 #include "namespace.h"
 #include <arpa/inet.h>
@@ -72,6 +72,10 @@ struct xlocale_collate __xlocale_global_collate = {
 	{{0}, "C"}, 1, 0
 };
 
+static struct xlocale_collate c_collate= {
+	{{0}, "C"}, 1, 0
+};
+
 void __collate_err(int ex, const char *f) __dead2;
 
 int
@@ -90,6 +94,9 @@ destruct_collate(void *t)
 void *
 __collate_load(const char *encoding, locale_t unused)
 {
+	if (strcmp(encoding, "C") == 0 || strcmp(encoding, "POSIX") == 0) {
+		return &c_collate;
+	}
 	struct xlocale_collate *table = calloc(sizeof(struct xlocale_collate), 1);
 	table->header.header.destructor = destruct_collate;
 	// FIXME: Make sure that _LDP_CACHE is never returned.  We should be doing

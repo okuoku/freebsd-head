@@ -30,7 +30,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/libc/locale/lnumeric.c 116875 2003-06-26 10:46:16Z phantom $");
+__FBSDID("$FreeBSD$");
 
 #include <limits.h>
 
@@ -97,7 +97,7 @@ __numeric_load(const char *name, locale_t l)
 	struct xlocale_numeric *new = calloc(sizeof(struct xlocale_numeric), 1);
 	new->header.header.destructor = destruct_numeric;
 	if (numeric_load_locale(new, &l->using_numeric_locale,
-				&l->numeric_locale_changed, name))
+				&l->numeric_locale_changed, name) == _LDP_ERROR)
 	{
 		xlocale_release(new);
 		return NULL;

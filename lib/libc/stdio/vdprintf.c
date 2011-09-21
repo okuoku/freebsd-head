@@ -30,7 +30,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/libc/stdio/vdprintf.c 205021 2010-03-11 17:03:32Z jhb $");
+__FBSDID("$FreeBSD$");
 
 #include "namespace.h"
 #include <errno.h>

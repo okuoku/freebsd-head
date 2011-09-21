@@ -30,7 +30,7 @@
  */
 
 #include <sys/param.h>
-__FBSDID("$FreeBSD: head/lib/libc/locale/utf8.c 172661 2007-10-15 09:51:30Z ache $");
+__FBSDID("$FreeBSD$");
 
 #include <errno.h>
 #include <limits.h>

@@ -36,7 +36,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/libc/locale/toupper.c 165903 2007-01-09 00:28:16Z imp $");
+__FBSDID("$FreeBSD$");
 
 #include <ctype.h>
 #include <stdio.h>
@@ -62,7 +62,9 @@ ___toupper_l(c, l)
 	for (lim = rr->__nranges; lim != 0; lim >>= 1) {
 		re = base + (lim >> 1);
 		if (re->__min <= c && c <= re->__max)
+		{
 			return (re->__map + c - re->__min);
+		}
 		else if (c > re->__max) {
 			base = re + 1;
 			lim--;

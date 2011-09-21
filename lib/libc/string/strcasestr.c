@@ -36,7 +36,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/libc/string/strcasestr.c 188080 2009-02-03 17:58:20Z danger $");
+__FBSDID("$FreeBSD$");
 
 #include <ctype.h>
 #include <string.h>

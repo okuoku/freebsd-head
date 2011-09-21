@@ -30,7 +30,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/libc/locale/lmessages.c 116875 2003-06-26 10:46:16Z phantom $");
+__FBSDID("$FreeBSD$");
 
 #include <stddef.h>
 
@@ -95,7 +95,7 @@ __messages_load(const char *name, locale_t l)
 {
 	struct xlocale_messages *new = calloc(sizeof(struct xlocale_messages), 1);
 	new->header.header.destructor = destruct_messages;
-	if (messages_load_locale(new, &l->using_messages_locale, name)) {
+	if (messages_load_locale(new, &l->using_messages_locale, name) == _LDP_ERROR) {
 		xlocale_release(new);
 		return NULL;
 	}

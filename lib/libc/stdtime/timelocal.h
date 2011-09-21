@@ -28,7 +28,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $FreeBSD: head/lib/libc/stdtime/timelocal.h 89736 2002-01-24 15:07:44Z phantom $
+ * $FreeBSD$
  */
 
 #ifndef _TIMELOCAL_H_

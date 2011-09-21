@@ -37,7 +37,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/libc/locale/ascii.c 175553 2008-01-21 23:48:12Z ache $");
+__FBSDID("$FreeBSD$");
 
 #include <errno.h>
 #include <limits.h>

@@ -30,7 +30,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/libc/locale/wcsftime.c 187312 2009-01-15 20:45:59Z rdivacky $");
+__FBSDID("$FreeBSD$");
 
 #include <errno.h>
 #include <limits.h>

@@ -35,7 +35,7 @@
  * SUCH DAMAGE.
  *
  *	@(#)local.h	8.3 (Berkeley) 7/3/94
- * $FreeBSD: head/lib/libc/stdio/local.h 205021 2010-03-11 17:03:32Z jhb $
+ * $FreeBSD$
  */
 
 #include <sys/types.h>	/* for off_t */

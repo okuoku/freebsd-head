@@ -39,7 +39,7 @@
 static char sccsid[] = "@(#)sprintf.c	8.1 (Berkeley) 6/4/93";
 #endif /* LIBC_SCCS and not lint */
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/libc/stdio/sprintf.c 200802 2009-12-21 19:59:38Z delphij $");
+__FBSDID("$FreeBSD$");
 
 #include <stdio.h>
 #include <stdarg.h>

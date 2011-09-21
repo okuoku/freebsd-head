@@ -31,7 +31,7 @@
  */
 
 #include <sys/param.h>
-__FBSDID("$FreeBSD: head/lib/libc/locale/gb2312.c 172619 2007-10-13 16:28:22Z ache $");
+__FBSDID("$FreeBSD$");
 
 #include <errno.h>
 #include <runetype.h>

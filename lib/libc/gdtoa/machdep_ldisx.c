@@ -36,7 +36,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/libc/gdtoa/machdep_ldisx.c 174204 2007-12-03 07:17:33Z das $");
+__FBSDID("$FreeBSD$");
 
 #include <float.h>
 

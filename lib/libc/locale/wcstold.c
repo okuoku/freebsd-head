@@ -48,12 +48,15 @@ wcstold_l(const wchar_t * __restrict nptr, wchar_t ** __restrict endptr,
 	mbstate_t mbs;
 	long double val;
 	char *buf, *end;
-	const wchar_t *wcp;
+	const wchar_t *wcp = nptr;
 	size_t len;
+	size_t spaces = 0;
 	FIX_LOCALE(locale);
 
-	while (iswspace_l(*nptr, locale))
-		nptr++;
+	while (iswspace_l(*wcp, locale)) {
+		wcp++;
+		spaces++;
+	}
 
 	wcp = nptr;
 	mbs = initial;
@@ -69,8 +72,12 @@ wcstold_l(const wchar_t * __restrict nptr, wchar_t ** __restrict endptr,
 
 	val = strtold_l(buf, &end, locale);
 
-	if (endptr != NULL)
+	if (endptr != NULL) {
+		/* XXX Assume each wide char is one byte. */
 		*endptr = (wchar_t *)nptr + (end - buf);
+		if (buf != end)
+			*endptr += spaces;
+	}
 
 	free(buf);
 

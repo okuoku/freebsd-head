@@ -54,12 +54,15 @@ wcstod_l(const wchar_t * __restrict nptr, wchar_t ** __restrict endptr,
 	mbstate_t mbs;
 	double val;
 	char *buf, *end;
-	const wchar_t *wcp;
+	const wchar_t *wcp = nptr;
 	size_t len;
+	size_t spaces = 0;
 	FIX_LOCALE(locale);
 
-	while (iswspace_l(*nptr, locale))
-		nptr++;
+	while (iswspace_l(*wcp, locale)) {
+		wcp++;
+		spaces++;
+	}
 
 	/*
 	 * Convert the supplied numeric wide char. string to multibyte.
@@ -71,7 +74,6 @@ wcstod_l(const wchar_t * __restrict nptr, wchar_t ** __restrict endptr,
 	 * duplicates a lot of strtod()'s functionality and slows down the
 	 * most common cases.
 	 */
-	wcp = nptr;
 	mbs = initial;
 	if ((len = wcsrtombs_l(NULL, &wcp, 0, &mbs, locale)) == (size_t)-1) {
 		if (endptr != NULL)
@@ -92,9 +94,13 @@ wcstod_l(const wchar_t * __restrict nptr, wchar_t ** __restrict endptr,
 	 * where it ended, count multibyte characters to find the
 	 * corresponding position in the wide char string.
 	 */
-	if (endptr != NULL)
+	if (endptr != NULL) {
 		/* XXX Assume each wide char is one byte. */
 		*endptr = (wchar_t *)nptr + (end - buf);
+		if (buf != end)
+			*endptr += spaces;
+	}
+
 
 	free(buf);
 

@@ -230,8 +230,13 @@ double	expm1(double);
 double	fma(double, double, double);
 double	hypot(double, double);
 int	ilogb(double) __pure2;
+#ifdef __cplusplus
+bool	(isinf)(double) __pure2;
+bool	(isnan)(double) __pure2;
+#else
 int	(isinf)(double) __pure2;
 int	(isnan)(double) __pure2;
+#endif
 double	lgamma(double);
 long long llrint(double);
 long long llround(double);

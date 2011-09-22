@@ -97,7 +97,10 @@ typedef	__wint_t	wint_t;
 #define	WEOF 	((wint_t)-1)
 #endif
 
-struct __sFILE;
+#ifndef _STDFILE_DECLARED
+#define _STDFILE_DECLARED
+typedef struct __sFILE FILE;
+#endif
 struct tm;
 
 __BEGIN_DECLS

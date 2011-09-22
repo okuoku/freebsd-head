@@ -249,8 +249,19 @@
 #define	__func__	NULL
 #endif
 
-#if (defined(__INTEL_COMPILER) || (defined(__GNUC__) && __GNUC__ >= 2)) && !defined(__STRICT_ANSI__) || __STDC_VERSION__ >= 199901 || __cplusplus >= 201103L
+#if (defined(__INTEL_COMPILER) || (defined(__GNUC__) && __GNUC__ >= 2)) && !defined(__STRICT_ANSI__) || __STDC_VERSION__ >= 199901
 #define	__LONG_LONG_SUPPORTED
+#endif
+
+/* C++11 exposes a load of C99 stuff */
+#if __cplusplus >= 201103L
+#	define	__LONG_LONG_SUPPORTED
+#	ifndef __STDC_LIMIT_MACROS
+#		define __STDC_LIMIT_MACROS
+#	endif
+#	ifndef __STDC_CONSTANT_MACROS
+#		define __STDC_CONSTANT_MACROS
+#	endif
 #endif
 
 /*

@@ -57,7 +57,6 @@ __FBSDID("$FreeBSD$");
 #include <net/if_types.h>
 #include <net/bpf.h>
 #include <net/if_arp.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 #include <net/if_vlan_var.h>
 
@@ -515,13 +514,10 @@ et_ifmedia_upd_locked(struct ifnet *ifp)
 {
 	struct et_softc *sc = ifp->if_softc;
 	struct mii_data *mii = device_get_softc(sc->sc_miibus);
+	struct mii_softc *miisc;
 
-	if (mii->mii_instance != 0) {
-		struct mii_softc *miisc;
-
-		LIST_FOREACH(miisc, &mii->mii_phys, mii_list)
-			mii_phy_reset(miisc);
-	}
+	LIST_FOREACH(miisc, &mii->mii_phys, mii_list)
+		PHY_RESET(miisc);
 	mii_mediachg(mii);
 
 	return (0);

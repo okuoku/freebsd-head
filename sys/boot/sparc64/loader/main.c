@@ -96,10 +96,10 @@ static struct mmu_ops {
 typedef void kernel_entry_t(vm_offset_t mdp, u_long o1, u_long o2, u_long o3,
     void *openfirmware);
 
-static inline u_long dtlb_get_data_sun4u(u_int);
+static inline u_long dtlb_get_data_sun4u(u_int, u_int);
 static int dtlb_enter_sun4u(u_int, u_long data, vm_offset_t);
 static vm_offset_t dtlb_va_to_pa_sun4u(vm_offset_t);
-static inline u_long itlb_get_data_sun4u(u_int);
+static inline u_long itlb_get_data_sun4u(u_int, u_int);
 static int itlb_enter_sun4u(u_int, u_long data, vm_offset_t);
 static vm_offset_t itlb_va_to_pa_sun4u(vm_offset_t);
 static void itlb_relocate_locked0_sun4u(void);
@@ -113,13 +113,11 @@ static int map_phys(int, size_t, vm_offset_t, vm_offset_t);
 static void release_phys(vm_offset_t, u_int);
 static int __elfN(exec)(struct preloaded_file *);
 static int mmu_mapin_sun4u(vm_offset_t, vm_size_t);
-static int mmu_mapin_sun4v(vm_offset_t, vm_size_t);
 static vm_offset_t init_heap(void);
 static phandle_t find_bsp_sun4u(phandle_t, uint32_t);
 const char *cpu_cpuid_prop_sun4u(void);
 uint32_t cpu_get_mid_sun4u(void);
 static void tlb_init_sun4u(void);
-static void tlb_init_sun4v(void);
 
 #ifdef LOADER_DEBUG
 typedef u_int64_t tte_t;
@@ -129,7 +127,6 @@ static void pmap_print_tte_sun4u(tte_t, tte_t);
 #endif
 
 static struct mmu_ops mmu_ops_sun4u = { tlb_init_sun4u, mmu_mapin_sun4u };
-static struct mmu_ops mmu_ops_sun4v = { tlb_init_sun4v, mmu_mapin_sun4v };
 
 /* sun4u */
 struct tlb_entry *dtlb_store;
@@ -139,16 +136,7 @@ u_int itlb_slot;
 static int cpu_impl;
 static u_int dtlb_slot_max;
 static u_int itlb_slot_max;
-
-/* sun4v */
-static struct tlb_entry *tlb_store;
-static int is_sun4v = 0;
-/*
- * no direct TLB access on sun4v
- * we somewhat arbitrarily declare enough
- * slots to cover a 4GB AS with 4MB pages
- */
-#define	SUN4V_TLB_SLOT_MAX	(1 << 10)
+static u_int tlb_locked;
 
 static vm_offset_t curkva = 0;
 static vm_offset_t heapva;
@@ -368,42 +356,55 @@ __elfN(exec)(struct preloaded_file *fp)
 }
 
 static inline u_long
-dtlb_get_data_sun4u(u_int slot)
+dtlb_get_data_sun4u(u_int tlb, u_int slot)
 {
+	u_long data, pstate;
 
+	slot = TLB_DAR_SLOT(tlb, slot);
 	/*
-	 * We read ASI_DTLB_DATA_ACCESS_REG twice in order to work
-	 * around errata of USIII and beyond.
+	 * We read ASI_DTLB_DATA_ACCESS_REG twice back-to-back in order to
+	 * work around errata of USIII and beyond.
 	 */
-	(void)ldxa(TLB_DAR_SLOT(slot), ASI_DTLB_DATA_ACCESS_REG);
-	return (ldxa(TLB_DAR_SLOT(slot), ASI_DTLB_DATA_ACCESS_REG));
+	pstate = rdpr(pstate);
+	wrpr(pstate, pstate & ~PSTATE_IE, 0);
+	(void)ldxa(slot, ASI_DTLB_DATA_ACCESS_REG);
+	data = ldxa(slot, ASI_DTLB_DATA_ACCESS_REG);
+	wrpr(pstate, pstate, 0);
+	return (data);
 }
 
 static inline u_long
-itlb_get_data_sun4u(u_int slot)
+itlb_get_data_sun4u(u_int tlb, u_int slot)
 {
+	u_long data, pstate;
 
+	slot = TLB_DAR_SLOT(tlb, slot);
 	/*
-	 * We read ASI_ITLB_DATA_ACCESS_REG twice in order to work
-	 * around errata of USIII and beyond.
+	 * We read ASI_DTLB_DATA_ACCESS_REG twice back-to-back in order to
+	 * work around errata of USIII and beyond.
 	 */
-	(void)ldxa(TLB_DAR_SLOT(slot), ASI_ITLB_DATA_ACCESS_REG);
-	return (ldxa(TLB_DAR_SLOT(slot), ASI_ITLB_DATA_ACCESS_REG));
+	pstate = rdpr(pstate);
+	wrpr(pstate, pstate & ~PSTATE_IE, 0);
+	(void)ldxa(slot, ASI_ITLB_DATA_ACCESS_REG);
+	data = ldxa(slot, ASI_ITLB_DATA_ACCESS_REG);
+	wrpr(pstate, pstate, 0);
+	return (data);
 }
 
 static vm_offset_t
 dtlb_va_to_pa_sun4u(vm_offset_t va)
 {
 	u_long pstate, reg;
-	int i;
+	u_int i, tlb;
 
 	pstate = rdpr(pstate);
 	wrpr(pstate, pstate & ~PSTATE_IE, 0);
 	for (i = 0; i < dtlb_slot_max; i++) {
-		reg = ldxa(TLB_DAR_SLOT(i), ASI_DTLB_TAG_READ_REG);
+		reg = ldxa(TLB_DAR_SLOT(tlb_locked, i),
+		    ASI_DTLB_TAG_READ_REG);
 		if (TLB_TAR_VA(reg) != va)
 			continue;
-		reg = dtlb_get_data_sun4u(i);
+		reg = dtlb_get_data_sun4u(tlb_locked, i);
 		wrpr(pstate, pstate, 0);
 		reg >>= TD_PA_SHIFT;
 		if (cpu_impl == CPU_IMPL_SPARC64V ||
@@ -424,10 +425,11 @@ itlb_va_to_pa_sun4u(vm_offset_t va)
 	pstate = rdpr(pstate);
 	wrpr(pstate, pstate & ~PSTATE_IE, 0);
 	for (i = 0; i < itlb_slot_max; i++) {
-		reg = ldxa(TLB_DAR_SLOT(i), ASI_ITLB_TAG_READ_REG);
+		reg = ldxa(TLB_DAR_SLOT(tlb_locked, i),
+		    ASI_ITLB_TAG_READ_REG);
 		if (TLB_TAR_VA(reg) != va)
 			continue;
-		reg = itlb_get_data_sun4u(i);
+		reg = itlb_get_data_sun4u(tlb_locked, i);
 		wrpr(pstate, pstate, 0);
 		reg >>= TD_PA_SHIFT;
 		if (cpu_impl == CPU_IMPL_SPARC64V ||
@@ -471,14 +473,14 @@ itlb_relocate_locked0_sun4u(void)
 	pstate = rdpr(pstate);
 	wrpr(pstate, pstate & ~PSTATE_IE, 0);
 
-	data = itlb_get_data_sun4u(0);
+	data = itlb_get_data_sun4u(tlb_locked, 0);
 	if ((data & (TD_V | TD_L)) != (TD_V | TD_L)) {
 		wrpr(pstate, pstate, 0);
 		return;
 	}
 
 	/* Flush the mapping of slot 0. */
-	tag = ldxa(TLB_DAR_SLOT(0), ASI_ITLB_TAG_READ_REG);
+	tag = ldxa(TLB_DAR_SLOT(tlb_locked, 0), ASI_ITLB_TAG_READ_REG);
 	stxa(TLB_DEMAP_VA(TLB_TAR_VA(tag)) | TLB_DEMAP_PRIMARY |
 	    TLB_DEMAP_PAGE, ASI_IMMU_DEMAP, 0);
 	flush(0);	/* The USIII-family ignores the address. */
@@ -488,11 +490,12 @@ itlb_relocate_locked0_sun4u(void)
 	 * that formerly were in slot 0.
 	 */
 	for (i = 1; i < itlb_slot_max; i++) {
-		if ((itlb_get_data_sun4u(i) & TD_V) != 0)
+		if ((itlb_get_data_sun4u(tlb_locked, i) & TD_V) != 0)
 			continue;
 
 		stxa(AA_IMMU_TAR, ASI_IMMU, tag);
-		stxa(TLB_DAR_SLOT(i), ASI_ITLB_DATA_ACCESS_REG, data);
+		stxa(TLB_DAR_SLOT(tlb_locked, i), ASI_ITLB_DATA_ACCESS_REG,
+		    data);
 		flush(0);	/* The USIII-family ignores the address. */
 		break;
 	}
@@ -558,47 +561,6 @@ mmu_mapin_sun4u(vm_offset_t va, vm_size_t len)
 				    "%#lx va %#lxd", __func__, index, data,
 				    va);
 			itlb_slot++;
-			pa = (vm_offset_t)-1;
-		}
-		len -= len > PAGE_SIZE_4M ? PAGE_SIZE_4M : len;
-		va += PAGE_SIZE_4M;
-	}
-	if (pa != (vm_offset_t)-1)
-		release_phys(pa, PAGE_SIZE_4M);
-	return (0);
-}
-
-static int
-mmu_mapin_sun4v(vm_offset_t va, vm_size_t len)
-{
-	vm_offset_t pa, mva;
-
-	if (va + len > curkva)
-		curkva = va + len;
-
-	pa = (vm_offset_t)-1;
-	len += va & PAGE_MASK_4M;
-	va &= ~PAGE_MASK_4M;
-	while (len) {
-		if ((va >> 22) > SUN4V_TLB_SLOT_MAX)
-			panic("%s: trying to map more than 4GB", __func__);
-		if (tlb_store[va >> 22].te_pa == -1) {
-			/* Allocate a physical page, claim the virtual area */
-			if (pa == (vm_offset_t)-1) {
-				pa = alloc_phys(PAGE_SIZE_4M, PAGE_SIZE_4M);
-				if (pa == (vm_offset_t)-1)
-				    panic("%s: out of memory", __func__);
-				mva = claim_virt(va, PAGE_SIZE_4M, 0);
-				if (mva != va)
-					panic("%s: can't claim virtual page "
-					    "(wanted %#lx, got %#lx)",
-					    __func__, va, mva);
-			}
-
-			tlb_store[va >> 22].te_pa = pa;
-			if (map_phys(-1, PAGE_SIZE_4M, va, pa) == -1)
-				printf("%s: can't map physical page\n",
-				    __func__);
 			pa = (vm_offset_t)-1;
 		}
 		len -= len > PAGE_SIZE_4M ? PAGE_SIZE_4M : len;
@@ -705,6 +667,26 @@ tlb_init_sun4u(void)
 	phandle_t bsp;
 
 	cpu_impl = VER_IMPL(rdpr(ver));
+	switch (cpu_impl) {
+	case CPU_IMPL_SPARC64:
+	case CPU_IMPL_ULTRASPARCI:
+	case CPU_IMPL_ULTRASPARCII:
+	case CPU_IMPL_ULTRASPARCIIi:
+	case CPU_IMPL_ULTRASPARCIIe:
+		tlb_locked = TLB_DAR_T32;
+		break;
+	case CPU_IMPL_ULTRASPARCIII:
+	case CPU_IMPL_ULTRASPARCIIIp:
+	case CPU_IMPL_ULTRASPARCIIIi:
+	case CPU_IMPL_ULTRASPARCIIIip:
+	case CPU_IMPL_ULTRASPARCIV:
+	case CPU_IMPL_ULTRASPARCIVp:
+		tlb_locked = TLB_DAR_T16;
+		break;
+	case CPU_IMPL_SPARC64V:
+		tlb_locked = TLB_DAR_FTLB;
+		break;
+	}
 	bsp = find_bsp_sun4u(OF_child(root), cpu_get_mid_sun4u());
 	if (bsp == 0)
 		panic("%s: no node for bootcpu?!?!", __func__);
@@ -739,14 +721,6 @@ tlb_init_sun4u(void)
 		panic("%s: can't allocate TLB store", __func__);
 }
 
-static void
-tlb_init_sun4v(void)
-{
-
-	tlb_store = malloc(SUN4V_TLB_SLOT_MAX * sizeof(*tlb_store));
-	memset(tlb_store, 0xFF, SUN4V_TLB_SLOT_MAX * sizeof(*tlb_store));
-}
-
 int
 main(int (*openfirm)(void *))
 {
@@ -777,14 +751,7 @@ main(int (*openfirm)(void *))
 	if ((root = OF_peer(0)) == -1)
 		panic("%s: can't get root phandle", __func__);
 	OF_getprop(root, "compatible", compatible, sizeof(compatible));
-	if (!strcmp(compatible, "sun4v")) {
-		printf("\nBooting with sun4v support.\n");
-		mmu_ops = &mmu_ops_sun4v;
-		is_sun4v = 1;
-	} else {
-		printf("\nBooting with sun4u support.\n");
-		mmu_ops = &mmu_ops_sun4u;
-	}
+	mmu_ops = &mmu_ops_sun4u;
 
 	mmu_ops->tlb_init();
 
@@ -890,21 +857,23 @@ pmap_print_tlb_sun4u(void)
 	pstate = rdpr(pstate);
 	for (i = 0; i < itlb_slot_max; i++) {
 		wrpr(pstate, pstate & ~PSTATE_IE, 0);
-		tte = itlb_get_data_sun4u(i);
+		tte = itlb_get_data_sun4u(tlb_locked, i);
 		wrpr(pstate, pstate, 0);
 		if (!(tte & TD_V))
 			continue;
-		tag = ldxa(TLB_DAR_SLOT(i), ASI_ITLB_TAG_READ_REG);
+		tag = ldxa(TLB_DAR_SLOT(tlb_locked, i),
+		    ASI_ITLB_TAG_READ_REG);
 		printf("iTLB-%2u: ", i);
 		pmap_print_tte_sun4u(tag, tte);
 	}
 	for (i = 0; i < dtlb_slot_max; i++) {
 		wrpr(pstate, pstate & ~PSTATE_IE, 0);
-		tte = dtlb_get_data_sun4u(i);
+		tte = dtlb_get_data_sun4u(tlb_locked, i);
 		wrpr(pstate, pstate, 0);
 		if (!(tte & TD_V))
 			continue;
-		tag = ldxa(TLB_DAR_SLOT(i), ASI_DTLB_TAG_READ_REG);
+		tag = ldxa(TLB_DAR_SLOT(tlb_locked, i),
+		    ASI_DTLB_TAG_READ_REG);
 		printf("dTLB-%2u: ", i);
 		pmap_print_tte_sun4u(tag, tte);
 	}

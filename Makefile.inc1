@@ -12,6 +12,7 @@
 #	-DNO_KERNELOBJ do not run ${MAKE} obj in ${MAKE} buildkernel
 #	-DNO_PORTSUPDATE do not update ports in ${MAKE} update
 #	-DNO_DOCUPDATE do not update doc in ${MAKE} update
+#	-DNO_WWWUPDATE do not update www in ${MAKE} update
 #	-DNO_CTF do not run the DTrace CTF conversion tools on built objects
 #	LOCAL_DIRS="list of dirs" to add additional dirs to the SUBDIR list
 #	TARGET="machine" to crossbuild world for a different machine type
@@ -130,7 +131,7 @@ VERSION!=	uname -srp
 VERSION+=	${OSRELDATE}
 .endif
 
-KNOWN_ARCHES?=	amd64 arm armeb/arm i386 i386/pc98 ia64 mipsel/mips mipseb/mips mips64el/mips mips64eb/mips mipsn32el/mips mipsn32eb/mips powerpc powerpc64/powerpc sparc64 sparc64/sun4v
+KNOWN_ARCHES?=	amd64 arm armeb/arm i386 i386/pc98 ia64 mipsel/mips mipseb/mips mips64el/mips mips64eb/mips mipsn32el/mips mipsn32eb/mips powerpc powerpc64/powerpc sparc64
 .if ${TARGET} == ${TARGET_ARCH}
 _t=		${TARGET}
 .else
@@ -246,9 +247,10 @@ TMAKE=		MAKEOBJDIRPREFIX=${OBJTREE} \
 		${BMAKEENV} ${MAKE} -f Makefile.inc1 \
 		TARGET=${TARGET} TARGET_ARCH=${TARGET_ARCH} \
 		DESTDIR= \
+		BOOTSTRAPPING=${OSRELDATE} \
 		SSP_CFLAGS= \
-		BOOTSTRAPPING=${OSRELDATE} -DNO_LINT -DNO_CPU_CFLAGS \
-		-DNO_WARNS -DNO_CTF
+		-DNO_LINT \
+		-DNO_CPU_CFLAGS -DNO_WARNS -DNO_CTF
 
 # cross-tools stage
 XMAKE=		TOOLS_PREFIX=${WORLDTMP} ${BMAKE} \
@@ -306,7 +308,6 @@ LIB32WMAKEENV+=	MAKEOBJDIRPREFIX=${OBJTREE}/lib32 \
 		PATH=${TMPPATH} \
 		CC="${CC} ${LIB32FLAGS}" \
 		CXX="${CXX} ${LIB32FLAGS}" \
-		OBJC="${OBJC} ${LIB32FLAGS}" \
 		LIBDIR=/usr/lib32 \
 		SHLIBDIR=/usr/lib32
 
@@ -830,7 +831,7 @@ buildkernel:
 	@echo "--------------------------------------------------------------"
 	cd ${KRNLOBJDIR}/${_kernel}; \
 	    MAKESRCPATH=${KERNSRCDIR}/dev/aic7xxx/aicasm \
-	    ${MAKE} SSP_CFLAGS= -DNO_CPU_CFLAGS \
+	    ${MAKE} SSP_CFLAGS= -DNO_CPU_CFLAGS -DNO_CTF \
 	    -f ${KERNSRCDIR}/dev/aic7xxx/aicasm/Makefile
 # XXX - Gratuitously builds aicasm in the ``makeoptions NO_MODULES'' case.
 .if !defined(MODULES_WITH_WORLD) && !defined(NO_MODULES) && exists(${KERNSRCDIR}/modules)
@@ -869,7 +870,7 @@ reinstallkernel reinstallkernel.debug: installcheck
 	false
 .endif
 	@echo "--------------------------------------------------------------"
-	@echo ">>> Installing kernel"
+	@echo ">>> Installing kernel ${INSTALLKERNEL}"
 	@echo "--------------------------------------------------------------"
 	cd ${KRNLOBJDIR}/${INSTALLKERNEL}; \
 	    ${CROSSENV} PATH=${TMPPATH} \
@@ -904,7 +905,7 @@ doxygen:
 #
 # update
 #
-# Update the source tree, by running cvsup and/or running cvs to update to the
+# Update the source tree(s), by running cvsup/cvs/svn to update to the
 # latest copy.
 #
 update:
@@ -926,6 +927,9 @@ update:
 .endif
 .if defined(DOCSUPFILE) && !defined(NO_DOCUPDATE)
 	@${SUP} ${SUPFLAGS} ${DOCSUPFILE}
+.endif
+.if defined(WWWSUPFILE) && !defined(NO_WWWUPDATE)
+	@${SUP} ${SUPFLAGS} ${WWWSUPFILE}
 .endif
 .endif
 .if defined(CVS_UPDATE)
@@ -1010,6 +1014,10 @@ _lex=		usr.bin/lex
 _yacc=		usr.bin/yacc
 .endif
 
+.if ${BOOTSTRAPPING} >= 900040 && ${BOOTSTRAPPING} < 900041
+_awk=		usr.bin/awk
+.endif
+
 .if ${BOOTSTRAPPING} < 700018
 _gensnmptree=	usr.sbin/bsnmpd/gensnmptree
 .endif
@@ -1025,7 +1033,9 @@ _clang_tblgen= \
 	usr.bin/clang/tblgen
 .endif
 
-.if ${MK_CDDL} != "no"
+.if ${MK_CDDL} != "no" && \
+    ${BOOTSTRAPPING} < 800038 && \
+    !(${BOOTSTRAPPING} >= 700112 && ${BOOTSTRAPPING} < 799999)
 _dtrace_tools= cddl/usr.bin/sgsmsg cddl/lib/libctf lib/libelf \
     lib/libdwarf cddl/usr.bin/ctfconvert cddl/usr.bin/ctfmerge
 .endif
@@ -1034,6 +1044,9 @@ _dtrace_tools= cddl/usr.bin/sgsmsg cddl/lib/libctf lib/libelf \
 _dtc= gnu/usr.bin/dtc
 .endif
 
+#	Please document (add comment) why something is in 'bootstrap-tools'.
+#	Try to bound the building of the bootstrap-tool to just the
+#	FreeBSD versions that need the tool built at this stage of the build.
 bootstrap-tools:
 .for _tool in \
     ${_clang_tblgen} \
@@ -1043,6 +1056,7 @@ bootstrap-tools:
     ${_groff} \
     ${_ar} \
     ${_dtc} \
+    ${_awk} \
     usr.bin/lorder \
     usr.bin/makewhatis \
     ${_mklocale} \
@@ -1127,17 +1141,27 @@ _kgzip=		usr.sbin/kgzip
 .endif
 .endif
 
+.if ${MK_BINUTILS} != "no"
+_binutils=	gnu/usr.bin/binutils
+.endif
+
+.if ${MK_CLANG} != "no"
 .if ${CC:T:Mclang} == "clang"
 _clang=		usr.bin/clang
 _clang_libs=	lib/clang
+.endif
+.endif
+
+.if ${MK_GCC} != "no"
+_cc=		gnu/usr.bin/cc
 .endif
 
 cross-tools:
 .for _tool in \
     ${_clang_libs} \
     ${_clang} \
-    gnu/usr.bin/binutils \
-    gnu/usr.bin/cc \
+    ${_binutils} \
+    ${_cc} \
     usr.bin/xlint/lint1 usr.bin/xlint/lint2 usr.bin/xlint/xlint \
     ${_btxld} \
     ${_crunchide} \
@@ -1198,7 +1222,7 @@ _prebuild_libs=	${_kerberos5_lib_libasn1} ${_kerberos5_lib_libheimntlm} \
 		${_kerberos5_lib_libhx509} ${_kerberos5_lib_libkrb5} \
 		${_kerberos5_lib_libroken} \
 		lib/libbz2 lib/libcom_err lib/libcrypt \
-		lib/libexpat lib/libfetch \
+		lib/libexpat \
 		${_lib_libgssapi} ${_lib_libipx} \
 		lib/libkiconv lib/libkvm lib/liblzma lib/libmd \
 		lib/ncurses/ncurses lib/ncurses/ncursesw \
@@ -1231,7 +1255,6 @@ _cddl_lib= cddl/lib
 _secure_lib_libcrypto= secure/lib/libcrypto
 _secure_lib_libssl= secure/lib/libssl
 lib/libradius__L secure/lib/libssl__L: secure/lib/libcrypto__L
-lib/libfetch__L: secure/lib/libcrypto__L secure/lib/libssl__L lib/libmd__L
 .if ${MK_OPENSSH} != "no"
 _secure_lib_libssh= secure/lib/libssh
 secure/lib/libssh__L: lib/libz__L secure/lib/libcrypto__L lib/libcrypt__L
@@ -1267,7 +1290,7 @@ _lib_libypclnt=	lib/libypclnt
 .endif
 
 .if ${MK_OPENSSL} == "no"
-lib/libfetch__L lib/libradius__L: lib/libmd__L
+lib/libradius__L: lib/libmd__L
 .endif
 
 .for _lib in ${_prereq_libs}
@@ -1546,7 +1569,8 @@ _xb-build-tools:
 _xb-cross-tools:
 .for _tool in \
     gnu/usr.bin/binutils \
-    gnu/usr.bin/cc
+    gnu/usr.bin/cc \
+    usr.bin/ar
 	${_+_}@${ECHODIR} "===> xdev ${_tool} (obj,depend,all)"; \
 	cd ${.CURDIR}/${_tool}; \
 	${CDMAKE} DIRPRFX=${_tool}/ obj; \
@@ -1571,7 +1595,8 @@ _xi-cross-tools:
 	@echo "_xi-cross-tools"
 .for _tool in \
     gnu/usr.bin/binutils \
-    gnu/usr.bin/cc
+    gnu/usr.bin/cc \
+    usr.bin/ar
 	${_+_}@${ECHODIR} "===> xdev ${_tool} (install)"; \
 	cd ${.CURDIR}/${_tool}; \
 	${CDMAKE} DIRPRFX=${_tool}/ install DESTDIR=${XDDESTDIR}

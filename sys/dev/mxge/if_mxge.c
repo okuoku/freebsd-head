@@ -2834,7 +2834,7 @@ mxge_media_init(mxge_softc_t *sc)
 			return;
 		}
 	}
-	if (*ptr == 'C') {
+	if (*ptr == 'C' || *(ptr +1) == 'C') {
 		/* -C is CX4 */
 		sc->connector = MXGE_CX4;
 		mxge_media_set(sc, IFM_10G_CX4);
@@ -3054,6 +3054,14 @@ mxge_intr(void *arg)
 static void
 mxge_init(void *arg)
 {
+	mxge_softc_t *sc = arg;
+	struct ifnet *ifp = sc->ifp;
+
+
+	mtx_lock(&sc->driver_mtx);
+	if ((ifp->if_drv_flags & IFF_DRV_RUNNING) == 0)
+		(void) mxge_open(sc);
+	mtx_unlock(&sc->driver_mtx);
 }
 
 

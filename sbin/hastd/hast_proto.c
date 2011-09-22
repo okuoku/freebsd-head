@@ -69,7 +69,9 @@ struct hast_pipe_stage {
 
 static struct hast_pipe_stage pipeline[] = {
 	{ "compression", compression_send, compression_recv },
+#ifdef HAVE_CRYPTO
 	{ "checksum", checksum_send, checksum_recv }
+#endif
 };
 
 /*
@@ -189,9 +191,12 @@ hast_proto_recv_data(const struct hast_resource *res, struct proto_conn *conn,
 	dptr = data;
 
 	dsize = nv_get_uint32(nv, "size");
-	if (dsize == 0)
+	if (dsize > size) {
+		errno = EINVAL;
+		goto end;
+	} else if (dsize == 0) {
 		(void)nv_set_error(nv, 0);
-	else {
+	} else {
 		if (proto_recv(conn, data, dsize) < 0)
 			goto end;
 		for (ii = sizeof(pipeline) / sizeof(pipeline[0]); ii > 0;
@@ -214,28 +219,5 @@ hast_proto_recv_data(const struct hast_resource *res, struct proto_conn *conn,
 end:
 	if (freedata)
 		free(dptr);
-	return (ret);
-}
-
-int
-hast_proto_recv(const struct hast_resource *res, struct proto_conn *conn,
-    struct nv **nvp, void *data, size_t size)
-{
-	struct nv *nv;
-	size_t dsize;
-	int ret;
-
-	ret = hast_proto_recv_hdr(conn, &nv);
-	if (ret < 0)
-		return (ret);
-	dsize = nv_get_uint32(nv, "size");
-	if (dsize == 0)
-		(void)nv_set_error(nv, 0);
-	else
-		ret = hast_proto_recv_data(res, conn, nv, data, size);
-	if (ret < 0)
-		nv_free(nv);
-	else
-		*nvp = nv;
 	return (ret);
 }

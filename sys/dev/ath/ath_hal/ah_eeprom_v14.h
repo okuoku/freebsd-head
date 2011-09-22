@@ -95,10 +95,10 @@
 
 #define	AR5416_OPFLAGS_11A		0x01
 #define	AR5416_OPFLAGS_11G		0x02
-#define	AR5416_OPFLAGS_5G_HT40		0x04
-#define	AR5416_OPFLAGS_2G_HT40		0x08
-#define	AR5416_OPFLAGS_5G_HT20		0x10
-#define	AR5416_OPFLAGS_2G_HT20		0x20
+#define	AR5416_OPFLAGS_N_5G_HT40	0x04	/* If set, disable 5G HT40 */
+#define	AR5416_OPFLAGS_N_2G_HT40	0x08
+#define	AR5416_OPFLAGS_N_5G_HT20	0x10
+#define	AR5416_OPFLAGS_N_2G_HT20	0x20
 
 /* RF silent fields in EEPROM */
 #define	EEP_RFSILENT_ENABLED		0x0001	/* enabled/disabled */
@@ -143,6 +143,16 @@ typedef struct CalCtlEdges {
 } __packed CAL_CTL_EDGES;
 
 /*
+ * These are the secondary regulatory domain flags
+ * for regDmn[1].
+ */
+#define	AR5416_REGDMN_EN_FCC_MID	0x01	/* 5.47 - 5.7GHz operation */
+#define	AR5416_REGDMN_EN_JAP_MID	0x02	/* 5.47 - 5.7GHz operation */
+#define	AR5416_REGDMN_EN_FCC_DFS_HT40	0x04	/* FCC HT40 + DFS operation */
+#define	AR5416_REGDMN_EN_JAP_HT40	0x08	/* JP HT40 operation */
+#define	AR5416_REGDMN_EN_JAP_DFS_HT40	0x10	/* JP HT40 + DFS operation */
+
+/*
  * NB: The format in EEPROM has words 0 and 2 swapped (i.e. version
  * and length are swapped).  We reverse their position after reading
  * the data into host memory so the version field is at the same
@@ -177,7 +187,10 @@ typedef struct BaseEepHeader {
 	uint8_t		rcChainMask;	/* "1" if the card is an HB93 1x2 */
 	uint8_t		desiredScaleCCK;
 	uint8_t		pwr_table_offset;
-	uint8_t		frac_n_5g;
+	uint8_t		frac_n_5g;	/*
+					 * bit 0: indicates that fracN synth
+					 * mode applies to all 5G channels
+					 */
 	uint8_t		futureBase[21];
 } __packed BASE_EEP_HEADER; // 64 B
 

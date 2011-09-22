@@ -341,6 +341,17 @@ control_status(struct nv *nv)
 		printf("  dirty: %ju (%NB)\n",
 		    (uintmax_t)nv_get_uint64(nv, "dirty%u", ii),
 		    (intmax_t)nv_get_uint64(nv, "dirty%u", ii));
+		printf("  statistics:\n");
+		printf("    reads: %ju\n",
+		    (uint64_t)nv_get_uint64(nv, "stat_read%u", ii));
+		printf("    writes: %ju\n",
+		    (uint64_t)nv_get_uint64(nv, "stat_write%u", ii));
+		printf("    deletes: %ju\n",
+		    (uint64_t)nv_get_uint64(nv, "stat_delete%u", ii));
+		printf("    flushes: %ju\n",
+		    (uint64_t)nv_get_uint64(nv, "stat_flush%u", ii));
+		printf("    activemap updates: %ju\n",
+		    (uint64_t)nv_get_uint64(nv, "stat_activemap_update%u", ii));
 	}
 	return (ret);
 }
@@ -392,15 +403,15 @@ main(int argc, char *argv[])
 			break;
 		case 'e':
 			if (expand_number(optarg, &extentsize) < 0)
-				err(1, "Invalid extentsize");
+				errx(EX_USAGE, "Invalid extentsize");
 			break;
 		case 'k':
 			if (expand_number(optarg, &keepdirty) < 0)
-				err(1, "Invalid keepdirty");
+				errx(EX_USAGE, "Invalid keepdirty");
 			break;
 		case 'm':
 			if (expand_number(optarg, &mediasize) < 0)
-				err(1, "Invalid mediasize");
+				errx(EX_USAGE, "Invalid mediasize");
 			break;
 		case 'h':
 		default:
@@ -465,7 +476,7 @@ main(int argc, char *argv[])
 		}
 		break;
 	default:
-		assert(!"Impossible role!");
+		assert(!"Impossible command!");
 	}
 
 	/* Setup control connection... */
@@ -480,7 +491,7 @@ main(int argc, char *argv[])
 		    cfg->hc_controladdr);
 	}
 
-	if (drop_privs(true) != 0)
+	if (drop_privs(NULL) != 0)
 		exit(EX_CONFIG);
 
 	/* Send the command to the server... */
@@ -491,7 +502,7 @@ main(int argc, char *argv[])
 	}
 	nv_free(nv);
 	/* ...and receive reply. */
-	if (hast_proto_recv(NULL, controlconn, &nv, NULL, 0) < 0) {
+	if (hast_proto_recv_hdr(controlconn, &nv) < 0) {
 		pjdlog_exit(EX_UNAVAILABLE,
 		    "cannot receive reply from hastd via %s",
 		    cfg->hc_controladdr);
@@ -512,7 +523,7 @@ main(int argc, char *argv[])
 		error = control_status(nv);
 		break;
 	default:
-		assert(!"Impossible role!");
+		assert(!"Impossible command!");
 	}
 
 	exit(error);

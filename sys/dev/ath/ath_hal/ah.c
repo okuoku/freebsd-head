@@ -109,12 +109,16 @@ ath_hal_mac_name(struct ath_hal *ah)
 		return "5416";
 	case AR_XSREV_VERSION_OWL_PCIE:
 		return "5418";
+	case AR_XSREV_VERSION_HOWL:
+		return "9130";
 	case AR_XSREV_VERSION_SOWL:
 		return "9160";
 	case AR_XSREV_VERSION_MERLIN:
 		return "9280";
 	case AR_XSREV_VERSION_KITE:
 		return "9285";
+	case AR_XSREV_VERSION_KIWI:
+		return "9287";
 	}
 	return "????";
 }
@@ -518,6 +522,9 @@ ath_hal_getcapability(struct ath_hal *ah, HAL_CAPABILITY_TYPE type,
 	case HAL_CAP_REG_DMN:		/* regulatory domain */
 		*result = AH_PRIVATE(ah)->ah_currentRD;
 		return HAL_OK;
+	case HAL_CAP_DFS_DMN:		/* DFS Domain */
+		*result = AH_PRIVATE(ah)->ah_dfsDomain;
+		return HAL_OK;
 	case HAL_CAP_CIPHER:		/* cipher handled in hardware */
 	case HAL_CAP_TKIP_MIC:		/* handle TKIP MIC in hardware */
 		return HAL_ENOTSUPP;
@@ -583,19 +590,55 @@ ath_hal_getcapability(struct ath_hal *ah, HAL_CAPABILITY_TYPE type,
 		return HAL_ENOTSUPP;
 	case HAL_CAP_11D:
 		return HAL_OK;
-	case HAL_CAP_RXORN_FATAL:	/* HAL_INT_RXORN treated as fatal  */
-		return AH_PRIVATE(ah)->ah_rxornIsFatal ? HAL_OK : HAL_ENOTSUPP;
+
 	case HAL_CAP_HT:
 		return pCap->halHTSupport ? HAL_OK : HAL_ENOTSUPP;
+	case HAL_CAP_GTXTO:
+		return pCap->halGTTSupport ? HAL_OK : HAL_ENOTSUPP;
+	case HAL_CAP_FAST_CC:
+		return pCap->halFastCCSupport ? HAL_OK : HAL_ENOTSUPP;
 	case HAL_CAP_TX_CHAINMASK:	/* mask of TX chains supported */
 		*result = pCap->halTxChainMask;
 		return HAL_OK;
 	case HAL_CAP_RX_CHAINMASK:	/* mask of RX chains supported */
 		*result = pCap->halRxChainMask;
 		return HAL_OK;
+	case HAL_CAP_NUM_GPIO_PINS:
+		*result = pCap->halNumGpioPins;
+		return HAL_OK;
+	case HAL_CAP_CST:
+		return pCap->halCSTSupport ? HAL_OK : HAL_ENOTSUPP;
+	case HAL_CAP_RTS_AGGR_LIMIT:
+		*result = pCap->halRtsAggrLimit;
+		return HAL_OK;
+	case HAL_CAP_4ADDR_AGGR:
+		return pCap->hal4AddrAggrSupport ? HAL_OK : HAL_ENOTSUPP;
+	case HAL_CAP_EXT_CHAN_DFS:
+		return pCap->halExtChanDfsSupport ? HAL_OK : HAL_ENOTSUPP;
+	case HAL_CAP_COMBINED_RADAR_RSSI:
+		return pCap->halUseCombinedRadarRssi ? HAL_OK : HAL_ENOTSUPP;
+	case HAL_CAP_AUTO_SLEEP:
+		return pCap->halAutoSleepSupport ? HAL_OK : HAL_ENOTSUPP;
+	case HAL_CAP_MBSSID_AGGR_SUPPORT:
+		return pCap->halMbssidAggrSupport ? HAL_OK : HAL_ENOTSUPP;
+	case HAL_CAP_SPLIT_4KB_TRANS:	/* hardware handles descriptors straddling 4k page boundary */
+		return pCap->hal4kbSplitTransSupport ? HAL_OK : HAL_ENOTSUPP;
+	case HAL_CAP_REG_FLAG:
+		*result = AH_PRIVATE(ah)->ah_currentRDext;
+		return HAL_OK;
+	case HAL_CAP_BT_COEX:
+		return pCap->halBtCoexSupport ? HAL_OK : HAL_ENOTSUPP;
+	case HAL_CAP_HT20_SGI:
+		return pCap->halHTSGI20Support ? HAL_OK : HAL_ENOTSUPP;
 	case HAL_CAP_RXTSTAMP_PREC:	/* rx desc tstamp precision (bits) */
 		*result = pCap->halTstampPrecision;
 		return HAL_OK;
+	case HAL_CAP_ENHANCED_DFS_SUPPORT:
+		return pCap->halEnhancedDfsSupport ? HAL_OK : HAL_ENOTSUPP;
+
+	/* FreeBSD-specific entries for now */
+	case HAL_CAP_RXORN_FATAL:	/* HAL_INT_RXORN treated as fatal  */
+		return AH_PRIVATE(ah)->ah_rxornIsFatal ? HAL_OK : HAL_ENOTSUPP;
 	case HAL_CAP_INTRMASK:		/* mask of supported interrupts */
 		*result = pCap->halIntrMask;
 		return HAL_OK;
@@ -612,12 +655,10 @@ ath_hal_getcapability(struct ath_hal *ah, HAL_CAPABILITY_TYPE type,
 		default:
 			return HAL_ENOTSUPP;
 		}
-	case HAL_CAP_SPLIT_4KB_TRANS:	/* hardware handles descriptors straddling 4k page boundary */
-		return pCap->hal4kbSplitTransSupport ? HAL_OK : HAL_ENOTSUPP;
-	case HAL_CAP_HAS_PSPOLL:	/* hardware has ps-poll support */
-		return pCap->halHasPsPollSupport ? HAL_OK : HAL_ENOTSUPP;
 	case HAL_CAP_RXDESC_SELFLINK:	/* hardware supports self-linked final RX descriptors correctly */
 		return pCap->halHasRxSelfLinkedTail ? HAL_OK : HAL_ENOTSUPP;
+	case HAL_CAP_LONG_RXDESC_TSF:		/* 32 bit TSF in RX descriptor? */
+		return pCap->halHasLongRxDescTsf ? HAL_OK : HAL_ENOTSUPP;
 	default:
 		return HAL_EINVAL;
 	}
@@ -893,6 +934,80 @@ ath_hal_getChanNoise(struct ath_hal *ah, const struct ieee80211_channel *chan)
 }
 
 /*
+ * Fetch the current setup of ctl/ext noise floor values.
+ *
+ * If the CHANNEL_MIMO_NF_VALID flag isn't set, the array is simply
+ * populated with values from NOISE_FLOOR[] + ath_hal_getNfAdjust().
+ *
+ * The caller must supply ctl/ext NF arrays which are at least
+ * AH_MIMO_MAX_CHAINS entries long.
+ */
+int
+ath_hal_get_mimo_chan_noise(struct ath_hal *ah,
+    const struct ieee80211_channel *chan, int16_t *nf_ctl,
+    int16_t *nf_ext)
+{
+#ifdef	AH_SUPPORT_AR5416
+	HAL_CHANNEL_INTERNAL *ichan;
+	int i;
+
+	ichan = ath_hal_checkchannel(ah, chan);
+	if (ichan == AH_NULL) {
+		HALDEBUG(ah, HAL_DEBUG_NFCAL,
+		    "%s: invalid channel %u/0x%x; no mapping\n",
+		    __func__, chan->ic_freq, chan->ic_flags);
+		for (i = 0; i < AH_MIMO_MAX_CHAINS; i++) {
+			nf_ctl[i] = nf_ext[i] = 0;
+		}
+		return 0;
+	}
+
+	/* Return 0 if there's no valid MIMO values (yet) */
+	if (! (ichan->privFlags & CHANNEL_MIMO_NF_VALID)) {
+		for (i = 0; i < AH_MIMO_MAX_CHAINS; i++) {
+			nf_ctl[i] = nf_ext[i] = 0;
+		}
+		return 0;
+	}
+	if (ichan->rawNoiseFloor == 0) {
+		WIRELESS_MODE mode = ath_hal_chan2wmode(ah, chan);
+		HALASSERT(mode < WIRELESS_MODE_MAX);
+		/*
+		 * See the comment below - this could cause issues for
+		 * stations which have a very low RSSI, below the
+		 * 'normalised' NF values in NOISE_FLOOR[].
+		 */
+		for (i = 0; i < AH_MIMO_MAX_CHAINS; i++) {
+			nf_ctl[i] = nf_ext[i] = NOISE_FLOOR[mode] +
+			    ath_hal_getNfAdjust(ah, ichan);
+		}
+		return 1;
+	} else {
+		/*
+		 * The value returned here from a MIMO radio is presumed to be
+		 * "good enough" as a NF calculation. As RSSI values are calculated
+		 * against this, an adjusted NF may be higher than the RSSI value
+		 * returned from a vary weak station, resulting in an obscenely
+		 * high signal strength calculation being returned.
+		 *
+		 * This should be re-evaluated at a later date, along with any
+		 * signal strength calculations which are made. Quite likely the
+		 * RSSI values will need to be adjusted to ensure the calculations
+		 * don't "wrap" when RSSI is less than the "adjusted" NF value.
+		 * ("Adjust" here is via ichan->noiseFloorAdjust.)
+		 */
+		for (i = 0; i < AH_MIMO_MAX_CHAINS; i++) {
+			nf_ctl[i] = ichan->noiseFloorCtl[i] + ath_hal_getNfAdjust(ah, ichan);
+			nf_ext[i] = ichan->noiseFloorExt[i] + ath_hal_getNfAdjust(ah, ichan);
+		}
+		return 1;
+	}
+#else
+	return 0;
+#endif	/* AH_SUPPORT_AR5416 */
+}
+
+/*
  * Process all valid raw noise floors into the dBm noise floor values.
  * Though our device has no reference for a dBm noise floor, we perform
  * a relative minimization of NF's based on the lowest NF found across a
@@ -967,7 +1082,7 @@ ath_hal_ini_write(struct ath_hal *ah, const HAL_INI_ARRAY *ia,
 		    HAL_INI_VAL(ia, r, col));
 
 		/* Analog shift register delay seems needed for Merlin - PR kern/154220 */
-		if (HAL_INI_VAL(ia, r, 0) >= 0x7800 && HAL_INI_VAL(ia, r, 0) < 0x78a0)
+		if (HAL_INI_VAL(ia, r, 0) >= 0x7800 && HAL_INI_VAL(ia, r, 0) < 0x7900)
 			OS_DELAY(100);
 
 		DMA_YIELD(regWr);
@@ -1108,4 +1223,38 @@ ath_ee_interpolate(uint16_t target, uint16_t srcLeft, uint16_t srcRight,
               (srcRight - target) * targetLeft) / (srcRight - srcLeft) );
     }
     return rv;
+}
+
+/*
+ * Adjust the TSF.
+ */
+void
+ath_hal_adjusttsf(struct ath_hal *ah, int32_t tsfdelta)
+{
+	/* XXX handle wrap/overflow */
+	OS_REG_WRITE(ah, AR_TSF_L32, OS_REG_READ(ah, AR_TSF_L32) + tsfdelta);
+}
+
+/*
+ * Enable or disable CCA.
+ */
+void
+ath_hal_setcca(struct ath_hal *ah, int ena)
+{
+	/*
+	 * NB: fill me in; this is not provided by default because disabling
+	 *     CCA in most locales violates regulatory.
+	 */
+}
+
+/*
+ * Get CCA setting.
+ */
+int
+ath_hal_getcca(struct ath_hal *ah)
+{
+	u_int32_t diag;
+	if (ath_hal_getcapability(ah, HAL_CAP_DIAG, 0, &diag) != HAL_OK)
+		return 1;
+	return ((diag & 0x500000) == 0);
 }

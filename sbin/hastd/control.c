@@ -155,14 +155,13 @@ control_status_worker(struct hast_resource *res, struct nv *nvout,
 	const char *str;
 	int error;
 
-	cnvin = cnvout = NULL;
-	error = 0;
+	cnvin = NULL;
 
 	/*
 	 * Prepare and send command to worker process.
 	 */
 	cnvout = nv_alloc();
-	nv_add_uint8(cnvout, HASTCTL_STATUS, "cmd");
+	nv_add_uint8(cnvout, CONTROL_STATUS, "cmd");
 	error = nv_error(cnvout);
 	if (error != 0) {
 		pjdlog_common(LOG_ERR, 0, error,
@@ -199,6 +198,16 @@ control_status_worker(struct hast_resource *res, struct nv *nvout,
 	    "extentsize%u", no);
 	nv_add_uint32(nvout, nv_get_uint32(cnvin, "keepdirty"),
 	    "keepdirty%u", no);
+	nv_add_uint64(nvout, nv_get_uint64(cnvin, "stat_read"),
+	    "stat_read%u", no);
+	nv_add_uint64(nvout, nv_get_uint64(cnvin, "stat_write"),
+	    "stat_write%u", no);
+	nv_add_uint64(nvout, nv_get_uint64(cnvin, "stat_delete"),
+	    "stat_delete%u", no);
+	nv_add_uint64(nvout, nv_get_uint64(cnvin, "stat_flush"),
+	    "stat_flush%u", no);
+	nv_add_uint64(nvout, nv_get_uint64(cnvin, "stat_activemap_update"),
+	    "stat_activemap_update%u", no);
 end:
 	if (cnvin != NULL)
 		nv_free(cnvin);
@@ -324,7 +333,7 @@ control_handle(struct hastd_config *cfg)
 		error = EHAST_INVALID;
 		goto fail;
 	}
-	if (cmd == HASTCTL_SET_ROLE) {
+	if (cmd == HASTCTL_CMD_SETROLE) {
 		role = nv_get_uint8(nvin, "role");
 		switch (role) {
 		case HAST_ROLE_INIT:
@@ -345,11 +354,11 @@ control_handle(struct hastd_config *cfg)
 		ii = 0;
 		TAILQ_FOREACH(res, &cfg->hc_resources, hr_next) {
 			switch (cmd) {
-			case HASTCTL_SET_ROLE:
+			case HASTCTL_CMD_SETROLE:
 				control_set_role_common(cfg, nvout, role, res,
 				    res->hr_name, ii++);
 				break;
-			case HASTCTL_STATUS:
+			case HASTCTL_CMD_STATUS:
 				control_status(cfg, nvout, res, res->hr_name,
 				    ii++);
 				break;
@@ -368,11 +377,11 @@ control_handle(struct hastd_config *cfg)
 			if (str == NULL)
 				break;
 			switch (cmd) {
-			case HASTCTL_SET_ROLE:
+			case HASTCTL_CMD_SETROLE:
 				control_set_role_common(cfg, nvout, role, NULL,
 				    str, ii);
 				break;
-			case HASTCTL_STATUS:
+			case HASTCTL_CMD_STATUS:
 				control_status(cfg, nvout, NULL, str, ii);
 				break;
 			default:
@@ -427,7 +436,7 @@ ctrl_thread(void *arg)
 		}
 		nvout = nv_alloc();
 		switch (cmd) {
-		case HASTCTL_STATUS:
+		case CONTROL_STATUS:
 			if (res->hr_remotein != NULL &&
 			    res->hr_remoteout != NULL) {
 				nv_add_string(nvout, "complete", "status");
@@ -446,9 +455,16 @@ ctrl_thread(void *arg)
 				nv_add_uint32(nvout, (uint32_t)0, "keepdirty");
 				nv_add_uint64(nvout, (uint64_t)0, "dirty");
 			}
+			nv_add_uint64(nvout, res->hr_stat_read, "stat_read");
+			nv_add_uint64(nvout, res->hr_stat_write, "stat_write");
+			nv_add_uint64(nvout, res->hr_stat_delete,
+			    "stat_delete");
+			nv_add_uint64(nvout, res->hr_stat_flush, "stat_flush");
+			nv_add_uint64(nvout, res->hr_stat_activemap_update,
+			    "stat_activemap_update");
 			nv_add_int16(nvout, 0, "error");
 			break;
-		case HASTCTL_RELOAD:
+		case CONTROL_RELOAD:
 			/*
 			 * When parent receives SIGHUP and discovers that
 			 * something related to us has changes, it sends reload

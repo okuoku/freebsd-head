@@ -152,6 +152,7 @@
 #ifndef LOCORE
 
 #include <sys/queue.h>
+#include <sys/_cpuset.h>
 #include <sys/_lock.h>
 #include <sys/_mutex.h>
 
@@ -251,7 +252,7 @@ struct pmap {
 	struct mtx		pm_mtx;
 	pml4_entry_t		*pm_pml4;	/* KVA of level 4 page table */
 	TAILQ_HEAD(,pv_chunk)	pm_pvchunk;	/* list of mappings in pmap */
-	cpumask_t		pm_active;	/* active on cpus */
+	cpuset_t		pm_active;	/* active on cpus */
 	/* spare u_int here due to padding */
 	struct pmap_statistics	pm_stats;	/* pmap statistics */
 	vm_page_t		pm_root;	/* spare page table pages */
@@ -328,6 +329,8 @@ void	pmap_invalidate_page(pmap_t, vm_offset_t);
 void	pmap_invalidate_range(pmap_t, vm_offset_t, vm_offset_t);
 void	pmap_invalidate_all(pmap_t);
 void	pmap_invalidate_cache(void);
+void	pmap_invalidate_cache_pages(vm_page_t *pages, int count);
+void	pmap_invalidate_cache_range(vm_offset_t sva, vm_offset_t eva);
 
 #endif /* _KERNEL */
 

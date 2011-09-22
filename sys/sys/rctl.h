@@ -44,7 +44,7 @@
 struct proc;
 struct uidinfo;
 struct loginclass;
-struct prison;
+struct prison_racct;
 struct ucred;
 struct rctl_rule_link;
 
@@ -67,10 +67,10 @@ struct rctl_rule_link;
 struct rctl_rule {
 	int		rr_subject_type;
 	union {
-		struct proc	*rs_proc;
-		struct uidinfo	*rs_uip;
-		struct loginclass *hr_loginclass;
-		struct prison	*rs_prison;
+		struct proc		*rs_proc;
+		struct uidinfo		*rs_uip;
+		struct loginclass	*rs_loginclass;
+		struct prison_racct	*rs_prison_racct;
 	} rr_subject;
 	int		rr_per;
 	int		rr_resource;

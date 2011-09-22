@@ -29,7 +29,7 @@
 .\"     @(#)ps.1	8.3 (Berkeley) 4/18/94
 .\" $FreeBSD$
 .\"
-.Dd March 16, 2011
+.Dd July 1, 2011
 .Dt PS 1
 .Os
 .Sh NAME
@@ -130,7 +130,10 @@ If either of the
 and
 .Fl r
 options are also used, they control how sibling processes are sorted
-relative to eachother.
+relative to each other.
+Note that this option has no effect if the
+.Dq command
+column is not the last column displayed.
 .It Fl e
 Display the environment as well.
 .It Fl f
@@ -244,9 +247,13 @@ If the
 option is specified more than once,
 .Nm
 will use as many columns as necessary without regard for your window size.
+Note that this option has no effect if the
+.Dq command
+column is not the last column displayed.
 .It Fl X
 When displaying processes matched by other options, skip any processes
 which do not have a controlling terminal.
+This is the default behaviour.
 .It Fl x
 When displaying processes matched by other options, include processes
 which do not have a controlling terminal.
@@ -294,7 +301,7 @@ the include file
 .It Dv "P_PPWAIT" Ta No "0x00010	Parent is waiting for child to exec/exit"
 .It Dv "P_PROFIL" Ta No "0x00020	Has started profiling"
 .It Dv "P_STOPPROF" Ta No "0x00040	Has thread in requesting to stop prof"
-.It Dv "P_HASTHREADS" Ta No "0x00080	Has had threads (no cleanup shortcuts)"
+.It Dv "P_HADTHREADS" Ta No "0x00080	Has had threads (no cleanup shortcuts)"
 .It Dv "P_SUGID" Ta No "0x00100		Had set id privileges since last exec"
 .It Dv "P_SYSTEM" Ta No "0x00200	System proc: no sigs, stats or swapping"
 .It Dv "P_SINGLE_EXIT" Ta No "0x00400	Threads suspending should exit, not wait"
@@ -485,6 +492,8 @@ command
 command and arguments
 .It Cm cpu
 short-term CPU usage factor (for scheduling)
+.It Cm emul
+system-call emulation environment
 .It Cm etime
 elapsed running time, format
 .Op days- Ns
@@ -495,6 +504,12 @@ elapsed running time, in decimal integer seconds
 .It Cm flags
 the process flags, in hexadecimal (alias
 .Cm f )
+.It Cm gid
+effective group ID (alias
+.Cm egid )
+.It Cm group
+group name (from egid) (alias
+.Cm egroup )
 .It Cm inblk
 total blocks read (alias
 .Cm inblock )
@@ -514,6 +529,8 @@ lock currently blocked on (as a symbolic name)
 login name of user who started the session
 .It Cm lstart
 time started
+.It Cm lwp
+process thread-id
 .It Cm majflt
 total page faults
 .It Cm minflt
@@ -529,6 +546,8 @@ nice value (alias
 .Cm ni )
 .It Cm nivcsw
 total involuntary context switches
+.It Cm nlwp
+number of threads tied to a process
 .It Cm nsigs
 total signals taken (alias
 .Cm nsignals )
@@ -542,15 +561,13 @@ wait channel (as an address)
 total blocks written (alias
 .Cm oublock )
 .It Cm paddr
-swap address
+process pointer
 .It Cm pagein
 pageins (same as majflt)
 .It Cm pgid
 process group number
 .It Cm pid
 process ID
-.It Cm poip
-pageouts in progress
 .It Cm ppid
 parent process ID
 .It Cm pri
@@ -561,8 +578,6 @@ core residency time (in seconds; 127 = infinity)
 real group ID
 .It Cm rgroup
 group name (from rgid)
-.It Cm rlink
-reverse link on run queue, or 0
 .It Cm rss
 resident set size
 .It Cm rtprio
@@ -617,15 +632,16 @@ text size (in Kbytes)
 control terminal name (two letter abbreviation)
 .It Cm tty
 full name of control terminal
-.It Cm uprocp
-process pointer
 .It Cm ucomm
 name to be used for accounting
 .It Cm uid
-effective user ID
+effective user ID (alias
+.Cm euid )
 .It Cm upr
 scheduling priority on return from system call (alias
 .Cm usrpri )
+.It Cm uprocp
+process pointer
 .It Cm user
 user name (from UID)
 .It Cm usertime

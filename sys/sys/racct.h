@@ -49,33 +49,31 @@ struct ucred;
  */
 #define	RACCT_UNDEFINED		-1
 #define	RACCT_CPU		0
-#define	RACCT_FSIZE		1
-#define	RACCT_DATA		2
-#define	RACCT_STACK		3
-#define	RACCT_CORE		4
-#define	RACCT_RSS		5
-#define	RACCT_MEMLOCK		6
-#define	RACCT_NPROC		7
-#define	RACCT_NOFILE		8
-#define	RACCT_SBSIZE		9
-#define	RACCT_VMEM		10
-#define	RACCT_NPTS		11
-#define	RACCT_SWAP		12
-#define	RACCT_NTHR		13
-#define	RACCT_MSGQQUEUED	14
-#define	RACCT_MSGQSIZE		15
-#define	RACCT_NMSGQ		16
-#define	RACCT_NSEM		17
-#define	RACCT_NSEMOP		18
-#define	RACCT_NSHM		19
-#define	RACCT_SHMSIZE		20
-#define	RACCT_WALLCLOCK		21
+#define	RACCT_DATA		1
+#define	RACCT_STACK		2
+#define	RACCT_CORE		3
+#define	RACCT_RSS		4
+#define	RACCT_MEMLOCK		5
+#define	RACCT_NPROC		6
+#define	RACCT_NOFILE		7
+#define	RACCT_VMEM		8
+#define	RACCT_NPTS		9
+#define	RACCT_SWAP		10
+#define	RACCT_NTHR		11
+#define	RACCT_MSGQQUEUED	12
+#define	RACCT_MSGQSIZE		13
+#define	RACCT_NMSGQ		14
+#define	RACCT_NSEM		15
+#define	RACCT_NSEMOP		16
+#define	RACCT_NSHM		17
+#define	RACCT_SHMSIZE		18
+#define	RACCT_WALLCLOCK		19
 #define	RACCT_MAX		RACCT_WALLCLOCK
 
 /*
  * Resource properties.
  */
-#define	RACCT_IN_THOUSANDS	0x01
+#define	RACCT_IN_MILLIONS	0x01
 #define	RACCT_RECLAIMABLE	0x02
 #define	RACCT_INHERITABLE	0x04
 #define	RACCT_DENIABLE		0x08
@@ -84,35 +82,35 @@ struct ucred;
 extern int racct_types[];
 
 /*
- * Amount stored in c_resources[] is thousand times bigger than what's
+ * Amount stored in c_resources[] is 10**6 times bigger than what's
  * visible to the userland.  It gets fixed up when retrieving resource
  * usage or adding rules.
  */
-#define	racct_is_in_thousands(X)	(racct_types[X] & RACCT_IN_THOUSANDS)
+#define	RACCT_IS_IN_MILLIONS(X)	(racct_types[X] & RACCT_IN_MILLIONS)
 
 /*
  * Resource usage can drop, as opposed to only grow.
  */
-#define	racct_is_reclaimable(X)	(racct_types[X] & RACCT_RECLAIMABLE)
+#define	RACCT_IS_RECLAIMABLE(X)	(racct_types[X] & RACCT_RECLAIMABLE)
 
 /*
  * Children inherit resource usage.
  */
-#define	racct_is_inheritable(X)	(racct_types[X] & RACCT_INHERITABLE)
+#define	RACCT_IS_INHERITABLE(X)	(racct_types[X] & RACCT_INHERITABLE)
 
 /*
  * racct_{add,set}(9) can actually return an error and not update resource
  * usage counters.  Note that even when resource is not deniable, allocating
  * resource might cause signals to be sent by RCTL code.
  */
-#define	racct_is_deniable(X)		(racct_types[X] & RACCT_DENIABLE)
+#define	RACCT_IS_DENIABLE(X)		(racct_types[X] & RACCT_DENIABLE)
 
 /*
  * Per-process resource usage information makes no sense, but per-credential
  * one does.  This kind of resources are usually allocated for process, but
  * freed using credentials.
  */
-#define	racct_is_sloppy(X)		(racct_types[X] & RACCT_SLOPPY)
+#define	RACCT_IS_SLOPPY(X)		(racct_types[X] & RACCT_SLOPPY)
 
 /*
  * The 'racct' structure defines resource consumption for a particular

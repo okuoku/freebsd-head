@@ -49,6 +49,7 @@ __FBSDID("$FreeBSD$");
 #include "opt_isa.h"
 #include "opt_kstack_pages.h"
 #include "opt_maxmem.h"
+#include "opt_mp_watchdog.h"
 #include "opt_npx.h"
 #include "opt_perfmon.h"
 #include "opt_xbox.h"
@@ -118,6 +119,7 @@ __FBSDID("$FreeBSD$");
 #include <x86/mca.h>
 #include <machine/md_var.h>
 #include <machine/metadata.h>
+#include <machine/mp_watchdog.h>
 #include <machine/pc/bios.h>
 #include <machine/pcb.h>
 #include <machine/pcb_ext.h>
@@ -998,7 +1000,7 @@ freebsd4_sigreturn(td, uap)
  * MPSAFE
  */
 int
-sigreturn(td, uap)
+sys_sigreturn(td, uap)
 	struct thread *td;
 	struct sigreturn_args /* {
 		const struct __ucontext *sigcntxp;
@@ -1136,23 +1138,21 @@ cpu_flush_dcache(void *ptr, size_t len)
 int
 cpu_est_clockrate(int cpu_id, uint64_t *rate)
 {
-	register_t reg;
 	uint64_t tsc1, tsc2;
+	uint64_t acnt, mcnt, perf;
+	register_t reg;
 
 	if (pcpu_find(cpu_id) == NULL || rate == NULL)
 		return (EINVAL);
 	if ((cpu_feature & CPUID_TSC) == 0)
 		return (EOPNOTSUPP);
 
-	/* If TSC is P-state invariant, DELAY(9) based logic fails. */
-	if (tsc_is_invariant && tsc_freq != 0)
+	/*
+	 * If TSC is P-state invariant and APERF/MPERF MSRs do not exist,
+	 * DELAY(9) based logic fails.
+	 */
+	if (tsc_is_invariant && !tsc_perf_stat)
 		return (EOPNOTSUPP);
-
-	/* If we're booting, trust the rate calibrated moments ago. */
-	if (cold && tsc_freq != 0) {
-		*rate = tsc_freq;
-		return (0);
-	}
 
 #ifdef SMP
 	if (smp_cpus > 1) {
@@ -1165,10 +1165,24 @@ cpu_est_clockrate(int cpu_id, uint64_t *rate)
 
 	/* Calibrate by measuring a short delay. */
 	reg = intr_disable();
-	tsc1 = rdtsc();
-	DELAY(1000);
-	tsc2 = rdtsc();
-	intr_restore(reg);
+	if (tsc_is_invariant) {
+		wrmsr(MSR_MPERF, 0);
+		wrmsr(MSR_APERF, 0);
+		tsc1 = rdtsc();
+		DELAY(1000);
+		mcnt = rdmsr(MSR_MPERF);
+		acnt = rdmsr(MSR_APERF);
+		tsc2 = rdtsc();
+		intr_restore(reg);
+		perf = 1000 * acnt / mcnt;
+		*rate = (tsc2 - tsc1) * perf;
+	} else {
+		tsc1 = rdtsc();
+		DELAY(1000);
+		tsc2 = rdtsc();
+		intr_restore(reg);
+		*rate = (tsc2 - tsc1) * 1000;
+	}
 
 #ifdef SMP
 	if (smp_cpus > 1) {
@@ -1178,17 +1192,6 @@ cpu_est_clockrate(int cpu_id, uint64_t *rate)
 	}
 #endif
 
-	tsc2 -= tsc1;
-	if (tsc_freq != 0) {
-		*rate = tsc2 * 1000;
-		return (0);
-	}
-
-	/*
-	 * Subtract 0.5% of the total.  Empirical testing has shown that
-	 * overhead in DELAY() works out to approximately this value.
-	 */
-	*rate = tsc2 * 1000 - tsc2 * 5;
 	return (0);
 }
 
@@ -1350,14 +1353,16 @@ void (*cpu_idle_fn)(int) = cpu_idle_acpi;
 void
 cpu_idle(int busy)
 {
+#ifndef XEN
 	uint64_t msr;
+#endif
 
 	CTR2(KTR_SPARE2, "cpu_idle(%d) at %d",
 	    busy, curcpu);
-#if defined(SMP) && !defined(XEN)
-	if (mp_grab_cpu_hlt())
-		return;
+#if defined(MP_WATCHDOG) && !defined(XEN)
+	ap_watchdog(PCPU_GET(cpuid));
 #endif
+#ifndef XEN
 	/* If we are busy - try to use fast methods. */
 	if (busy) {
 		if ((cpu_feature2 & CPUID2_MON) && idle_mwait) {
@@ -1365,37 +1370,34 @@ cpu_idle(int busy)
 			goto out;
 		}
 	}
+#endif
 
-#ifndef XEN
 	/* If we have time - switch timers into idle mode. */
 	if (!busy) {
 		critical_enter();
 		cpu_idleclock();
 	}
-#endif
 
-	/* Apply AMD APIC timer C1E workaround. */
-	if (cpu_ident_amdc1e
 #ifndef XEN
-	    && cpu_disable_deep_sleep
-#endif
-	    ) {
+	/* Apply AMD APIC timer C1E workaround. */
+	if (cpu_ident_amdc1e && cpu_disable_deep_sleep) {
 		msr = rdmsr(MSR_AMDK8_IPM);
 		if (msr & AMDK8_CMPHALT)
 			wrmsr(MSR_AMDK8_IPM, msr & ~AMDK8_CMPHALT);
 	}
+#endif
 
 	/* Call main idle method. */
 	cpu_idle_fn(busy);
 
-#ifndef XEN
 	/* Switch timers mack into active mode. */
 	if (!busy) {
 		cpu_activeclock();
 		critical_exit();
 	}
-#endif
+#ifndef XEN
 out:
+#endif
 	CTR2(KTR_SPARE2, "cpu_idle(%d) at %d done",
 	    busy, curcpu);
 }
@@ -1496,6 +1498,22 @@ idle_sysctl(SYSCTL_HANDLER_ARGS)
 
 SYSCTL_PROC(_machdep, OID_AUTO, idle, CTLTYPE_STRING | CTLFLAG_RW, 0, 0,
     idle_sysctl, "A", "currently selected idle function");
+
+uint64_t (*atomic_load_acq_64)(volatile uint64_t *) =
+    atomic_load_acq_64_i386;
+void (*atomic_store_rel_64)(volatile uint64_t *, uint64_t) =
+    atomic_store_rel_64_i386;
+
+static void
+cpu_probe_cmpxchg8b(void)
+{
+
+	if ((cpu_feature & CPUID_CX8) != 0 ||
+	    cpu_vendor_id == CPU_VENDOR_RISE) {
+		atomic_load_acq_64 = atomic_load_acq_64_i586;
+		atomic_store_rel_64 = atomic_store_rel_64_i586;
+	}
+}
 
 /*
  * Reset registers to default values on exec.
@@ -2114,7 +2132,7 @@ static void
 getmemsize(int first)
 {
 	int has_smap, off, physmap_idx, pa_indx, da_indx;
-	u_long physmem_tunable;
+	u_long physmem_tunable, memtest;
 	vm_paddr_t physmap[PHYSMAP_SIZE];
 	pt_entry_t *pte;
 	quad_t dcons_addr, dcons_size;
@@ -2321,6 +2339,13 @@ physmap_done:
 	if (has_smap && Maxmem > atop(physmap[physmap_idx + 1]))
 		Maxmem = atop(physmap[physmap_idx + 1]);
 
+	/*
+	 * By default keep the memtest enabled.  Use a general name so that
+	 * one could eventually do more with the code than just disable it.
+	 */
+	memtest = 1;
+	TUNABLE_ULONG_FETCH("hw.memtest.tests", &memtest);
+
 	if (atop(physmap[physmap_idx + 1]) != Maxmem &&
 	    (boothowto & RB_VERBOSE))
 		printf("Physical memory use set to %ldK\n", Maxmem * 4);
@@ -2384,6 +2409,8 @@ physmap_done:
 				goto do_dump_avail;
 
 			page_bad = FALSE;
+			if (memtest == 0)
+				goto skip_memtest;
 
 			/*
 			 * map page into kernel: valid, read/write,non-cacheable
@@ -2421,6 +2448,7 @@ physmap_done:
 			 */
 			*(int *)ptr = tmp;
 
+skip_memtest:
 			/*
 			 * Adjust array of valid/good pages.
 			 */
@@ -2730,6 +2758,7 @@ init386(first)
 	thread0.td_pcb->pcb_gsd = PCPU_GET(fsgs_gdt)[1];
 
 	cpu_probe_amdc1e();
+	cpu_probe_cmpxchg8b();
 }
 
 #else
@@ -3006,6 +3035,7 @@ init386(first)
 	thread0.td_frame = &proc0_tf;
 
 	cpu_probe_amdc1e();
+	cpu_probe_cmpxchg8b();
 }
 #endif
 

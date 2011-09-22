@@ -1,3 +1,5 @@
+/*	$NetBSD: grep.c,v 1.4 2011/02/16 01:31:33 joerg Exp $	*/
+/* 	$FreeBSD$	*/
 /*	$OpenBSD: grep.c,v 1.42 2010/07/02 22:18:03 tedu Exp $	*/
 
 /*-
@@ -71,7 +73,7 @@ const char	*errstr[] = {
 };
 
 /* Flags passed to regcomp() and regexec() */
-int		 cflags = 0;
+int		 cflags = REG_NOSUB;
 int		 eflags = REG_STARTEND;
 
 /* Shortcut for matching all cases like empty regex */
@@ -302,7 +304,7 @@ init_color(const char *d)
 	char *c;
 
 	c = getenv("GREP_COLOR");
-	return (c != NULL ? c : d);
+	return (c != NULL && c[0] != '\0' ? c : d);
 }
 
 int
@@ -358,7 +360,7 @@ main(int argc, char *argv[])
 
 	/* support for extra arguments in GREP_OPTIONS */
 	eargc = 0;
-	if (eopts != NULL) {
+	if (eopts != NULL && eopts[0] != '\0') {
 		char *str;
 
 		/* make an estimation of how many extra arguments we have */
@@ -371,7 +373,8 @@ main(int argc, char *argv[])
 		eargc = 0;
 		/* parse extra arguments */
 		while ((str = strsep(&eopts, " ")) != NULL)
-			eargv[eargc++] = grep_strdup(str);
+			if (str[0] != '\0')
+				eargv[eargc++] = grep_strdup(str);
 
 		aargv = (char **)grep_calloc(eargc + argc + 1,
 		    sizeof(char *));
@@ -517,6 +520,7 @@ main(int argc, char *argv[])
 			break;
 		case 'o':
 			oflag = true;
+			cflags &= ~REG_NOSUB;
 			break;
 		case 'p':
 			linkbehave = LINK_SKIP;
@@ -550,9 +554,11 @@ main(int argc, char *argv[])
 			break;
 		case 'w':
 			wflag = true;
+			cflags &= ~REG_NOSUB;
 			break;
 		case 'x':
 			xflag = true;
+			cflags &= ~REG_NOSUB;
 			break;
 		case 'Z':
 			filebehave = FILE_GZIP;
@@ -586,6 +592,7 @@ main(int argc, char *argv[])
 			    strcasecmp("none", optarg) != 0 &&
 			    strcasecmp("no", optarg) != 0)
 				errx(2, getstr(3), "--color");
+			cflags &= ~REG_NOSUB;
 			break;
 		case LABEL_OPT:
 			label = optarg;

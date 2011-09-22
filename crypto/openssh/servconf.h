@@ -1,4 +1,5 @@
-/* $OpenBSD: servconf.h,v 1.93 2010/05/07 11:30:30 djm Exp $ */
+/* $OpenBSD: servconf.h,v 1.95 2010/11/13 23:27:50 djm Exp $ */
+/* $FreeBSD$ */
 
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
@@ -70,8 +71,11 @@ typedef struct {
 	char   *xauth_location;	/* Location of xauth program */
 	int     strict_modes;	/* If true, require string home dir modes. */
 	int     tcp_keep_alive;	/* If true, set SO_KEEPALIVE. */
+	int	ip_qos_interactive;	/* IP ToS/DSCP/class for interactive */
+	int	ip_qos_bulk;		/* IP ToS/DSCP/class for bulk traffic */
 	char   *ciphers;	/* Supported SSH2 ciphers. */
 	char   *macs;		/* Supported SSH2 macs. */
+	char   *kex_algorithms;	/* SSH2 kex methods in order of preference. */
 	int	protocol;	/* Supported protocol versions. */
 	int     gateway_ports;	/* If true, allow remote connects to forwarded ports. */
 	SyslogFacility log_facility;	/* Facility for system logging. */
@@ -157,6 +161,15 @@ typedef struct {
 	char   *revoked_keys_file;
 	char   *trusted_user_ca_keys;
 	char   *authorized_principals_file;
+
+	int	hpn_disabled;		/* Disable HPN functionality. */
+	int	hpn_buffer_size;	/* Set HPN buffer size - default 2MB.*/
+	int	tcp_rcv_buf_poll;	/* Poll TCP rcv window in autotuning
+					 * kernels. */
+
+#ifdef	NONE_CIPHER_ENABLED
+	int	none_enabled;		/* Enable NONE cipher switch. */
+#endif
 }       ServerOptions;
 
 void	 initialize_server_options(ServerOptions *);

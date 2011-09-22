@@ -183,9 +183,11 @@ init_remote(struct hast_resource *res, struct nv *nvin)
 	unsigned char *map;
 	size_t mapsize;
 
+#ifdef notyet
 	/* Setup direction. */
 	if (proto_send(res->hr_remoteout, NULL, 0) == -1)
 		pjdlog_errno(LOG_WARNING, "Unable to set connection direction");
+#endif
 
 	map = NULL;
 	mapsize = 0;
@@ -261,6 +263,7 @@ init_remote(struct hast_resource *res, struct nv *nvin)
 		} else {
 			memset(map, 0xff, mapsize);
 		}
+		nv_add_int8(nvout, 1, "virgin");
 		nv_add_uint8(nvout, HAST_SYNCSRC_PRIMARY, "syncsrc");
 	} else if (res->hr_resuid != resuid) {
 		char errmsg[256];
@@ -350,9 +353,11 @@ init_remote(struct hast_resource *res, struct nv *nvin)
 	if (map != NULL)
 		free(map);
 	nv_free(nvout);
+#ifdef notyet
 	/* Setup direction. */
 	if (proto_recv(res->hr_remotein, NULL, 0) == -1)
 		pjdlog_errno(LOG_WARNING, "Unable to set connection direction");
+#endif
 	if (res->hr_secondary_localcnt > res->hr_primary_remotecnt &&
 	     res->hr_primary_localcnt > res->hr_secondary_remotecnt) {
 		/* Exit on split-brain. */
@@ -435,7 +440,7 @@ hastd_secondary(struct hast_resource *res, struct nv *nvin)
 	init_local(res);
 	init_environment();
 
-	if (drop_privs(true) != 0)
+	if (drop_privs(res) != 0)
 		exit(EX_CONFIG);
 	pjdlog_info("Privileges successfully dropped.");
 
@@ -513,6 +518,7 @@ requnpack(struct hast_resource *res, struct hio *hio)
 		goto end;
 	}
 	switch (hio->hio_cmd) {
+	case HIO_FLUSH:
 	case HIO_KEEPALIVE:
 		break;
 	case HIO_READ:
@@ -609,6 +615,20 @@ recv_thread(void *arg)
 			    hio);
 			QUEUE_INSERT(send, hio);
 			continue;
+		}
+		switch (hio->hio_cmd) {
+		case HIO_READ:
+			res->hr_stat_read++;
+			break;
+		case HIO_WRITE:
+			res->hr_stat_write++;
+			break;
+		case HIO_DELETE:
+			res->hr_stat_delete++;
+			break;
+		case HIO_FLUSH:
+			res->hr_stat_flush++;
+			break;
 		}
 		reqlog(LOG_DEBUG, 2, -1, hio,
 		    "recv: (%p) Got request header: ", hio);
